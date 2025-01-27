@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features
+      - run: cargo run --example basic
+      - run: cargo run --example advanced
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy -- -D warnings
+
+  publish-core:
+    name: Publish core to crates.io
+    runs-on: ubuntu-latest
+    needs: [test, clippy]
+    if: github.event_name == 'release' && github.event.action == 'created' || github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo publish
+        working-directory: config-file
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-macro:
+    name: Publish macro to crates.io
+    needs: [test, clippy]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'created' || github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
