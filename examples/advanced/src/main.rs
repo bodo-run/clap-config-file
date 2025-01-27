@@ -1,42 +1,49 @@
 use clap_config_file::ClapConfigFile;
 
-/// This struct covers almost every possible combination of fields.
+/// This struct demonstrates usage of the ClapConfigFile derive with various attributes.
+///
+/// - `#[cli_and_config]`: Field can come from both CLI and config. CLI overrides if both exist.
+/// - `#[config_only]`: Field only comes from config file (or raw config data).
+/// - `#[cli_only]`: Field only comes from CLI.
+/// - `#[multi_value_behavior]`: Controls how `Vec` fields merge between config and CLI.
 #[derive(ClapConfigFile, Debug)]
 struct AdvancedConfig {
-    // server_port can come from both CLI and config; CLI takes precedence if supplied.
+    /// Example of a field that can come from both CLI and config, with CLI taking precedence.
+    ///
+    /// We also rename it with `#[config_arg(name = "port")]` and give a short `-p`, plus a default of 8080.
     #[cli_and_config]
     #[config_arg(name = "port", short = 'p', default_value = "8080")]
     pub server_port: u16,
 
-    // This is a boolean that can appear in both config and CLI (CLI wins if both).
-    // We'll demonstrate how booleans become "--debug" on CLI.
+    /// A boolean that can appear in both config and CLI (CLI wins if both).
+    /// Demonstrates how booleans become `--debug` on the CLI.
     #[cli_and_config]
     #[config_arg(name = "debug")]
     pub debug: bool,
 
-    // Config-only field (cannot be set via CLI).
-    // Must appear in the config file or have a default in the code if you want to avoid errors.
+    /// Field that is only available in the config file. Cannot be set via CLI.
     #[config_only]
     pub database_url: String,
 
-    // Another config-only field (any type that implements serde).
+    /// Another config-only field (must appear in config or have a default).
     #[config_only]
     pub special_secret: String,
 
-    // Nested config-only data (serde struct, map, etc.).
-    // For advanced nested usage, define a sub-struct with `#[derive(Serialize, Deserialize)]`.
+    /// Nested config-only data (any valid serde type).
     #[config_only]
     pub extra_settings: serde_json::Value,
 
-    // A list of strings that merges config list + CLI list (multi_value_behavior = Extend).
-    // Usage on CLI: `--extend-list item1 --extend-list item2 ...`
+    /// A list of strings that merges config + CLI lists (`Extend`).
+    ///
+    /// Usage on CLI: `--extend-list item1 --extend-list item2`
     #[cli_and_config]
     #[config_arg(name = "extend-list")]
     #[multi_value_behavior(Extend)]
     pub extend_list: Vec<String>,
 
-    // A list of strings where CLI overwrites config entirely (multi_value_behavior = Overwrite).
-    // Usage on CLI: `--overwrite-list item1 --overwrite-list item2 ...`
+    /// A list of strings that overwrites config if CLI is given (`Overwrite`).
+    ///
+    /// Usage on CLI: `--overwrite-list item1 --overwrite-list item2`
     #[cli_and_config]
     #[config_arg(name = "overwrite-list")]
     #[multi_value_behavior(Overwrite)]
@@ -44,16 +51,15 @@ struct AdvancedConfig {
 }
 
 fn main() {
-    // This tells the crate to auto-discover "advanced-config.yaml" by walking up parent directories,
-    // unless --no-config or --config-file overrides are given.
+    // This uses `.parse_with_default_file_name("advanced-config.yaml")` to auto-discover
+    // the config file by walking up parent directories, unless overridden by CLI flags.
     let config = AdvancedConfig::parse_with_default_file_name("advanced-config.yaml");
 
     println!("Final merged config:\n{:#?}", config);
 
-    // Here's a quick demonstration:
+    // Example usage:
     //   $ cargo run --example advanced -- --port 3001 --overwrite-list CLI_item
     //
-    // That would override the port to 3001 and the `overwrite_list` to ["CLI_item"].
-    // If advanced-config.yaml has "database_url: 'postgres://...'", that remains in place
-    // unless we used --no-config or a different file.
+    // That overrides the port and the overwrite_list. If advanced-config.yaml
+    // has `database_url` etc., that remains unless overridden or suppressed.
 }

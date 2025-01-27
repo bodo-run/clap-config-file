@@ -3,9 +3,10 @@ use predicates::prelude::*;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+/// End-to-end test demonstrating how fields merge between CLI and config.
 #[test]
 fn test_extend_behavior() {
-    // Create a temporary YAML config file
+    // Create a temporary YAML config file containing a port, database_url, etc.
     let mut config_file = NamedTempFile::new().unwrap();
     writeln!(
         config_file,
@@ -19,7 +20,7 @@ ignored_files:
     )
     .unwrap();
 
-    // Use cargo run --example instead of cargo_bin
+    // We'll run the 'basic' example with a few CLI overrides to see if merging works as expected.
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
         .arg("--example")
@@ -34,7 +35,8 @@ ignored_files:
         .arg("--ignored-files")
         .arg("baz.log");
 
-    // Run and check output
+    // Check for the final merged output:
+    // port 8080 overrides 3000, and ignored_files should contain "config.log", "foo.txt", plus the new "bar.txt" & "baz.log".
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Port: 8080"))

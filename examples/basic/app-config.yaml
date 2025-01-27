@@ -1,4 +1,4 @@
-# Sample configuration file
+# Sample configuration file for the "basic" example.
 port: 8080
 database_url: "postgres://localhost:5432/mydb"
 ignored_files:
