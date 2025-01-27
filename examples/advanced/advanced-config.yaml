@@ -1,0 +1,21 @@
+# Example config file with multiple fields.
+# You can place this file in the current directory (or a parent directory)
+# so it can be auto-discovered, or specify it via --config-file, etc.
+
+server_port: 9000
+database_url: "postgres://user:pass@localhost/mydb"
+debug: true
+
+# Lists for demonstration
+extend_list:
+  - "foo"
+  - "bar"
+overwrite_list:
+  - "config_item_1"
+  - "config_item_2"
+
+# These are config-only; no CLI arguments can override them
+special_secret: "this-came-from-the-config"
+extra_settings:
+  nesting_level: 3
+  allow_guest: false

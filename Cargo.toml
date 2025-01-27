@@ -1,0 +1,57 @@
+[package]
+name = "clap-config-file"
+version = "0.1.0"
+edition = "2021"
+description = "A proc macro for adding config file support to clap"
+license = "MIT"
+repository = "https://github.com/bodo-run/clap-config-file"
+documentation = "https://docs.rs/clap-config-file"
+readme = "README.md"
+keywords = ["clap", "config", "macro", "cli", "args"]
+categories = ["command-line-utilities", "config"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
+proc-macro2 = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+toml = "0.8"
+clap-config-file-core = { path = "./config-file", version = "0.1.0" }
+
+[dev-dependencies]
+clap = { version = "4.0", features = ["derive"] }
+tempfile = "3.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+assert_cmd = "2.0"
+predicates = "3.0"
+
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+harness = true
+required-features = ["build-binary"]
+
+[features]
+build-binary = []
+
+[workspace]
+members = [
+    "examples/basic",
+    "examples/advanced",
+    "config-file"
+]
+
+[[example]]
+name = "basic"
+path = "examples/basic/src/main.rs"
+
+[[example]]
+name = "advanced"
+path = "examples/advanced/src/main.rs"

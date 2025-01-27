@@ -1,0 +1,7 @@
+# Sample configuration file
+port: 8080
+database_url: "postgres://localhost:5432/mydb"
+ignored_files:
+  - "*.log"
+  - "target/"
+  - "node_modules/"

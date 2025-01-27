@@ -1,0 +1,12 @@
+[package]
+name = "advanced"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+clap-config-file = { path = "../.." } 
+serde_json = "1.0"
+toml = "0.8"
+serde_yaml = "0.9" 
