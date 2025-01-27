@@ -8,7 +8,7 @@ use clap_config_file::ClapConfigFile;
 /// - `#[cli_only]`: Field only comes from CLI.
 /// - `#[multi_value_behavior]`: Controls how `Vec` fields merge between config and CLI.
 #[derive(ClapConfigFile, Parser, Debug)]
-#[clap(trailing_var_arg = true)]
+#[command(trailing_var_arg = true, allow_external_subcommands = true)]
 struct AdvancedConfig {
     /// Example of a field that can come from both CLI and config, with CLI taking precedence.
     ///
@@ -51,9 +51,10 @@ struct AdvancedConfig {
     #[multi_value_behavior(Overwrite)]
     pub overwrite_list: Vec<String>,
 
-    /// Any additional commands or arguments
-    #[clap(last = true)]
-    pub commands: Vec<String>,
+    /// A captrue all for additional commands or arguments
+    #[cli_only]
+    #[positional]
+    commands: Vec<String>,
 }
 
 fn main() {
@@ -64,11 +65,14 @@ fn main() {
     println!("Final merged config:\n{:#?}", config);
 
     // Example usage:
-    //   $ cargo run --example advanced -- --port 3001 --overwrite-list CLI_item additional_command
+    //   $ cargo run --example advanced -- --port 3001 --overwrite-list CLI_item command1 command2
     //
     // That overrides the port and the overwrite_list. If advanced-config.yaml
     // has `database_url` etc., that remains unless overridden or suppressed.
+    // additional_command is passed to the program as an external subcommand.
     if !config.commands.is_empty() {
-        println!("\nReceived commands: {:?}", config.commands);
+        for command in config.commands {
+            println!("\nReceived commands: {:?}", command);
+        }
     }
 }

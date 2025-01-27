@@ -7,45 +7,7 @@ use syn::{
 };
 
 /// A derive macro that enables structs to handle configuration from both CLI arguments and config files.
-///
-/// This macro generates the necessary code to:
-/// 1. Parse command-line arguments using clap
-/// 2. Load and parse config files (YAML/JSON/TOML)
-/// 3. Merge the configurations with CLI taking precedence
-///
-/// # Attributes
-/// - `#[cli_only]`: Field only appears as a CLI argument
-/// - `#[config_only]`: Field only appears in config file
-/// - `#[cli_and_config]`: Field appears in both (CLI overrides config)
-/// - `#[config_arg(name = "x", short = 'x', long = "xxx", default_value = "y")]`: Customize CLI argument
-/// - `#[multi_value_behavior(extend/overwrite)]`: For Vec fields, control merge behavior
-///
-/// # Example
-/// ```rust
-/// use clap_config_file::ClapConfigFile;
-///
-/// #[derive(ClapConfigFile)]
-/// struct Config {
-///     // CLI-only flag with custom name
-///     #[cli_only]
-///     #[config_arg(name = "verbose", short = 'v')]
-///     verbose: bool,
-///
-///     // Config file only setting
-///     #[config_only]
-///     database_url: String,
-///
-///     // Available in both with CLI override
-///     #[cli_and_config]
-///     #[config_arg(name = "port", default_value = "8080")]
-///     port: u16,
-///
-///     // Vec field that extends values from both sources
-///     #[cli_and_config]
-///     #[multi_value_behavior(extend)]
-///     tags: Vec<String>,
-/// }
-/// ```
+/// ...
 #[proc_macro_derive(
     ClapConfigFile,
     attributes(
@@ -53,7 +15,8 @@ use syn::{
         config_only,
         cli_and_config,
         config_arg,
-        multi_value_behavior
+        multi_value_behavior,
+        positional
     )
 )]
 pub fn derive_clap_config_file(input: TokenStream) -> TokenStream {
@@ -64,8 +27,6 @@ pub fn derive_clap_config_file(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Defines how a field's value can be provided, controlling whether it's available
-/// via CLI arguments, config file, or both.
 #[derive(Debug, Clone, Copy)]
 enum FieldAvailability {
     CliOnly,
@@ -73,9 +34,6 @@ enum FieldAvailability {
     CliAndConfig,
 }
 
-/// Controls how Vec fields merge values when present in both CLI and config.
-/// - Extend: Append CLI values to config values
-/// - Overwrite: Replace config values with CLI values if present
 #[derive(Debug, Clone, Default)]
 enum MultiValueBehavior {
     #[default]
@@ -83,16 +41,15 @@ enum MultiValueBehavior {
     Overwrite,
 }
 
-/// Holds CLI argument customization options specified via #[config_arg(...)]
 #[derive(Debug, Default, Clone)]
 struct ArgAttributes {
     name: Option<String>,
     short: Option<char>,
     long: Option<String>,
     default_value: Option<String>,
+    is_positional: bool, // <--- new flag
 }
 
-/// Aggregates all metadata about a struct field needed for code generation
 #[derive(Debug, Clone)]
 struct FieldInfo {
     availability: FieldAvailability,
@@ -102,12 +59,6 @@ struct FieldInfo {
     ty: syn::Type,
 }
 
-/// Main implementation function that generates the expanded code for the derive macro.
-/// This includes:
-/// - Hidden CLI struct with clap attributes
-/// - Hidden config struct with serde attributes
-/// - Implementation of parsing and merging logic
-/// - Helper functions for config file discovery and loading
 fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
     let struct_name = &ast.ident;
     let generics = &ast.generics;
@@ -131,13 +82,12 @@ fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
         }
     };
 
-    // Parse user's field attributes
     let parsed_fields: Vec<FieldInfo> = fields
         .iter()
-        .map(|field| parse_one_field(field))
+        .map(|f| parse_one_field(f))
         .collect::<Result<_, _>>()?;
 
-    // For each field, generate the CLI struct token, the config struct token, and the final merge expression
+    // Build up the hidden CLI struct fields, config struct fields, and merge expressions
     let mut cli_struct_fields = Vec::new();
     let mut cfg_struct_fields = Vec::new();
     let mut merge_stmts = Vec::new();
@@ -148,7 +98,6 @@ fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
         let cfg_ts_opt = generate_config_field_tokens(pf);
         let merge_expr = generate_merge_expr(pf);
 
-        // If we got Some(...) token stream, push it into the vectors
         if let Some(ts) = cli_ts_opt {
             cli_struct_fields.push(ts);
         }
@@ -156,14 +105,13 @@ fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
             cfg_struct_fields.push(ts);
         }
 
-        // Always push the final merge line (the user's struct field)
         let field_name = &pf.ident;
         merge_stmts.push(quote! {
             #field_name: #merge_expr
         });
     }
 
-    // Add our special meta fields (for --no-config, etc.) to the CLI struct
+    // Add special config fields to the CLI struct
     cli_struct_fields.push(quote! {
         /// If true, skip reading any config file
         #[arg(long = "no-config", default_value_t = false)]
@@ -178,22 +126,19 @@ fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
         pub __raw_config: Option<String>,
     });
 
-    // Construct hidden struct names
     let cli_struct_ident = syn::Ident::new(&format!("__{}_Cli", struct_name), Span::call_site());
     let cfg_struct_ident = syn::Ident::new(&format!("__{}_Cfg", struct_name), Span::call_site());
-
     let num_fields = parsed_fields.len();
     let field_names = parsed_fields.iter().map(|pf| &pf.ident);
 
-    // Build final output
+    // We add #[command(name="advanced")] below. Adjust or remove as needed.
     let expanded = quote! {
-        // Hidden CLI struct
         #[derive(::clap::Parser, Debug, Default)]
+        #[command(name = "advanced")]
         struct #cli_struct_ident {
             #(#cli_struct_fields),*
         }
 
-        // Hidden config struct
         #[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
         struct #cfg_struct_ident {
             #(#cfg_struct_fields),*
@@ -389,13 +334,11 @@ fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
     Ok(expanded)
 }
 
-/// Parses all attributes on a field to determine its configuration behavior
 fn parse_one_field(field: &Field) -> syn::Result<FieldInfo> {
     let mut availability = None;
     let mut mv_behavior = MultiValueBehavior::default();
     let mut arg_attrs = ArgAttributes::default();
 
-    // Check each attribute for relevant markers
     for attr in &field.attrs {
         let path_ident = match attr.path().get_ident() {
             Some(i) => i.to_string(),
@@ -414,6 +357,10 @@ fn parse_one_field(field: &Field) -> syn::Result<FieldInfo> {
             "cli_and_config" => {
                 ensure_avail_none(&availability, attr)?;
                 availability = Some(FieldAvailability::CliAndConfig);
+            }
+            "positional" => {
+                // We'll mark this field as positional, so we skip generating `long/short`
+                arg_attrs.is_positional = true;
             }
             "config_arg" => {
                 let meta = attr.meta.require_list()?;
@@ -524,25 +471,17 @@ fn generate_cli_field_tokens(pf: &FieldInfo) -> Option<TokenStream2> {
                 short,
                 long,
                 default_value,
+                is_positional,
             } = &pf.arg_attrs;
 
-            // Create owned String here instead of referencing temporary
+            // name fallback for 'long' unless it's positional
             let name_str = name.clone().unwrap_or_else(|| field_name.to_string());
+            let default_attr = default_value
+                .as_ref()
+                .map(|dv| quote!(default_value = #dv, ))
+                .unwrap_or_default();
 
-            let short_attr = short.map(|c| quote!(short = #c,));
-            let long_attr = if let Some(ref l) = long {
-                quote!(long = #l,)
-            } else {
-                quote!(long = #name_str,)
-            };
-
-            let default_attr = if let Some(dv) = default_value {
-                quote!(default_value = #dv,)
-            } else {
-                quote!()
-            };
-
-            // If it's bool, use Option<bool> + ArgAction::SetTrue
+            // If bool, we parse it via Option<bool> + ArgAction::SetTrue
             let (final_ty, action) = if is_bool_type(ty) {
                 (
                     quote!(Option<bool>),
@@ -552,26 +491,34 @@ fn generate_cli_field_tokens(pf: &FieldInfo) -> Option<TokenStream2> {
                 (quote!(Option<#ty>), quote!())
             };
 
-            Some(quote! {
-                #[arg(#short_attr #long_attr #default_attr #action)]
-                pub #field_name: #final_ty
-            })
+            // If it's marked #[positional], skip long/short and let Clap treat it as a positional.
+            if *is_positional {
+                Some(quote! {
+                    #[arg(#action #default_attr)]
+                    pub #field_name: #final_ty
+                })
+            } else {
+                let short_attr = short.map(|c| quote!(short = #c,));
+                let long_attr = if let Some(ref l) = long {
+                    quote!(long = #l,)
+                } else {
+                    quote!(long = #name_str,)
+                };
+                Some(quote! {
+                    #[arg(#short_attr #long_attr #default_attr #action)]
+                    pub #field_name: #final_ty
+                })
+            }
         }
     }
 }
 
-/// Generates the field definition for the hidden config struct.
-/// All fields are marked with #[serde(default)] to handle missing values.
 fn generate_config_field_tokens(pf: &FieldInfo) -> Option<TokenStream2> {
     match pf.availability {
-        FieldAvailability::CliOnly => {
-            // No config field for CLI-only
-            None
-        }
+        FieldAvailability::CliOnly => None,
         FieldAvailability::ConfigOnly | FieldAvailability::CliAndConfig => {
             let field_name = &pf.ident;
             let ty = &pf.ty;
-            // We just do `#[serde(default)] pub field_name: T`
             Some(quote! {
                 #[serde(default)]
                 pub #field_name: #ty
@@ -580,22 +527,15 @@ fn generate_config_field_tokens(pf: &FieldInfo) -> Option<TokenStream2> {
     }
 }
 
-/// Generates the expression that combines CLI and config values for a field.
-/// The merge strategy depends on:
-/// - Field availability (cli_only, config_only, cli_and_config)
-/// - Whether the field is a Vec (uses multi_value_behavior)
-/// - For non-Vec fields, CLI takes precedence if present
 fn generate_merge_expr(pf: &FieldInfo) -> TokenStream2 {
     let field_name = &pf.ident;
     match pf.availability {
         FieldAvailability::CliOnly => {
-            // final = cli.field.unwrap_or_default()
             quote! {
                 cli.#field_name.unwrap_or_default()
             }
         }
         FieldAvailability::ConfigOnly => {
-            // final = cfg.field
             quote! {
                 cfg.#field_name
             }
@@ -622,7 +562,6 @@ fn generate_merge_expr(pf: &FieldInfo) -> TokenStream2 {
                     },
                 }
             } else {
-                // normal scalar
                 quote! {
                     cli.#field_name.unwrap_or(cfg.#field_name)
                 }
@@ -631,7 +570,6 @@ fn generate_merge_expr(pf: &FieldInfo) -> TokenStream2 {
     }
 }
 
-/// Determines if a type is a bool by checking its path segments
 fn is_bool_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(tp) = ty {
         if let Some(seg) = tp.path.segments.last() {
@@ -641,7 +579,6 @@ fn is_bool_type(ty: &syn::Type) -> bool {
     false
 }
 
-/// Determines if a type is a Vec by checking its path segments
 fn is_vec_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(tp) = ty {
         if let Some(seg) = tp.path.segments.last() {
