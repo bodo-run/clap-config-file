@@ -48,6 +48,8 @@ jobs:
         working-directory: config-file
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Wait for the core publish to be ready for the macro publish
+        run: sleep 30
 
   publish-macro:
     name: Publish macro to crates.io
