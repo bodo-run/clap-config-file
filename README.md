@@ -10,7 +10,7 @@ Consider you have a CLI tool that accepts a series of arguments:
 my-tool --port 8080 --verbose --database-url="sqlite://mem.db"
 ```
 
-And you want to be able to specify a configuration file:
+And you want to be able to specify a configuration file to make it easier to run the tool:
 
 ```yaml
 # my-tool.yaml
@@ -19,34 +19,11 @@ verbose: true
 database_url: sqlite://mem.db
 ```
 
-You can specify configuration in multiple ways:
+After integrating `ClapConfigFile`, your tool will be able to load the config file automatically:
 
 ```bash
-# Use explicit config file
-my-tool --config-file my-tool.yaml --port 4242
-
-# Disable config file loading
-my-tool --no-config --port 4242
-
-# Provide raw config via CLI
-my-tool --config '{"port": 8081, "database_url": "sqlite://mem.db"}'
-```
-
-This tool helps you easily manage both CLI arguments and configuration file.
-
-## Installation
-
-Add the following to your `Cargo.toml`:
-
-```toml
-[dependencies]
-clap-config-file = "0.1"
-```
-
-Then import it where you define your config struct:
-
-```rust
-use clap_config_file::ClapConfigFile;
+my-tool --port 4242 # still possible to provide CLI arguments
+# My tool now will get the rest of the config from the "my-tool.yaml" file
 ```
 
 ## Usage Example
@@ -55,6 +32,7 @@ use clap_config_file::ClapConfigFile;
 use clap_config_file::ClapConfigFile;
 
 #[derive(ClapConfigFile)]
+#[config_file_name("my-tool.yaml")]
 struct AppConfig {
     // Available in both CLI & config, with CLI override by default
     #[config_arg("port", short = "p", default_value = "8080")]
@@ -88,6 +66,16 @@ fn main() {
 }
 ```
 
+Now it's possible to run the tool with the config file:
+
+```bash
+my-tool --port 4242
+Port: 4242
+Verbose: false
+Database URL: sqlite://mem.db
+Ignored files: []
+```
+
 ## Attributes
 
 Use these attributes on your struct fields to control sources and behaviors:
@@ -106,18 +94,21 @@ Use these attributes on your struct fields to control sources and behaviors:
   - `extend` merges config and CLI-supplied items
   - `overwrite` replaces config items if CLI has any values
 
-## CLI Overrides and Options
+## Automatically Added CLI Flags
 
 These flags are automatically added to the CLI parser:
 
-1. `--no-config`
-   - If set, no file is loaded. Only CLI arguments and defaults apply
-2. `--config-file <FILE>`
+1. `--config-file <FILE>`
    - Overrides default discovery. Loads from `<FILE>` directly
+2. `--no-config`
+   - If set, no file is loaded. Only CLI arguments and thier defaults apply
 3. `--config <RAW>`
    - If used, parse `<RAW>` as YAML/JSON/TOML and merge with any discovered file or CLI arguments
 4. `--help`
    - Show help text
+
+> [!NOTE]
+> Seeking feedback if `--config` should be smart enough to figure out if a path to a config file is provided and load it accordingly. See [the open issue](https://github.com/bodo-run/clap-config-file/issues/1)
 
 ## Error Handling
 
