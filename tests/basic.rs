@@ -1,46 +1,40 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
+use std::path::Path;
 use std::process::Command;
-use tempfile::TempDir;
 
 #[test]
 fn with_config_file() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = TempDir::new()?;
-    std::fs::write(
-        dir.path().join("app-config.yaml"),
-        "port: 8080\ndatabase_url: \"postgres://localhost:5432/mydb\"",
-    )?;
+    // path to basic example
+    let dir = Path::new("examples/basic");
 
     Command::cargo_bin("basic")?
-        .current_dir(dir.path())
+        .current_dir(dir)
         .assert()
         .success()
+        .stdout(predicate::str::contains("Final config:"))
         .stdout(predicate::str::contains("port: 8080"))
-        .stdout(predicate::str::contains(
-            "database_url: \"postgres://localhost:5432/mydb\"",
-        ));
+        .stdout(predicate::str::contains("postgres://localhost:5432/mydb"))
+        .stdout(predicate::str::contains("Loaded config from:"));
 
     Ok(())
 }
 
 #[test]
 fn cli_override_port() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = TempDir::new()?;
-    std::fs::write(
-        dir.path().join("app-config.yaml"),
-        "port: 8080\ndatabase_url: \"postgres://localhost:5432/mydb\"",
-    )?;
+    // path to basic example
+    let dir = Path::new("examples/basic");
 
     Command::cargo_bin("basic")?
-        .current_dir(dir.path())
+        .current_dir(dir)
         .arg("--port")
         .arg("9090")
         .assert()
         .success()
+        .stdout(predicate::str::contains("Final config:"))
         .stdout(predicate::str::contains("port: 9090"))
-        .stdout(predicate::str::contains(
-            "database_url: \"postgres://localhost:5432/mydb\"",
-        ));
+        .stdout(predicate::str::contains("postgres://localhost:5432/mydb"))
+        .stdout(predicate::str::contains("Loaded config from:"));
 
     Ok(())
 }
@@ -51,8 +45,10 @@ fn no_config_uses_defaults() -> Result<(), Box<dyn std::error::Error>> {
         .arg("--no-config")
         .assert()
         .success()
+        .stdout(predicate::str::contains("Final config:"))
         .stdout(predicate::str::contains("port: 8080"))
-        .stdout(predicate::str::contains("database_url: \"\"")); // Default String is empty
+        .stdout(predicate::str::contains("database_url: None"))
+        .stdout(predicate::str::contains("No config file used"));
 
     Ok(())
 }
