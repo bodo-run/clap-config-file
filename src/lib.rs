@@ -1,591 +1,421 @@
+//! A single-derive macro merging Clap + config, defaulting field names to kebab-case.
+//! Now supports bool fields with or without default_value, avoiding parse errors.
+
+use heck::ToKebabCase;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::{
-    parse_macro_input, spanned::Spanned, Attribute, Data, DeriveInput, Field, Fields, Lit, Meta,
-    MetaNameValue,
-};
+use syn::{parse_macro_input, DeriveInput, Error, LitStr};
 
-/// A derive macro that enables structs to handle configuration from both CLI arguments and config files.
-/// ...
+mod parse_attrs;
+use parse_attrs::*;
+
 #[proc_macro_derive(
     ClapConfigFile,
-    attributes(
-        cli_only,
-        config_only,
-        cli_and_config,
-        config_arg,
-        multi_value_behavior,
-        positional
-    )
+    attributes(config_file_name, config_file_formats, config_arg)
 )]
 pub fn derive_clap_config_file(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    match build_impl(&input) {
+    let ast = parse_macro_input!(input as DeriveInput);
+    match build_impl(ast) {
         Ok(ts) => ts.into(),
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum FieldAvailability {
-    CliOnly,
-    ConfigOnly,
-    CliAndConfig,
-}
-
-#[derive(Debug, Clone, Default)]
-enum MultiValueBehavior {
-    #[default]
-    Extend,
-    Overwrite,
-}
-
-#[derive(Debug, Default, Clone)]
-struct ArgAttributes {
-    name: Option<String>,
-    short: Option<char>,
-    long: Option<String>,
-    default_value: Option<String>,
-    is_positional: bool, // <--- new flag
-}
-
-#[derive(Debug, Clone)]
-struct FieldInfo {
-    availability: FieldAvailability,
-    multi_value_behavior: MultiValueBehavior,
-    arg_attrs: ArgAttributes,
-    ident: syn::Ident,
-    ty: syn::Type,
-}
-
-fn build_impl(ast: &DeriveInput) -> syn::Result<TokenStream2> {
-    let struct_name = &ast.ident;
+fn build_impl(ast: DeriveInput) -> syn::Result<TokenStream2> {
+    let struct_ident = &ast.ident;
     let generics = &ast.generics;
 
-    // We only handle a struct with named fields
-    let fields = match &ast.data {
-        Data::Struct(s) => match &s.fields {
-            Fields::Named(named) => named.named.iter().collect::<Vec<_>>(),
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    &ast.ident,
-                    "Only structs with named fields are supported.",
-                ))
-            }
-        },
+    let macro_cfg = parse_struct_level_attrs(&ast.attrs)?;
+
+    let fields_named = match &ast.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(ref named),
+            ..
+        }) => &named.named,
         _ => {
-            return Err(syn::Error::new_spanned(
+            return Err(Error::new_spanned(
                 &ast.ident,
-                "Only structs with named fields are supported.",
+                "ClapConfigFile only supports a struct with named fields.",
             ))
         }
     };
 
-    let parsed_fields: Vec<FieldInfo> = fields
-        .iter()
-        .map(|f| parse_one_field(f))
-        .collect::<Result<_, _>>()?;
+    let field_infos = parse_fields(fields_named)?;
+    let parse_info_impl = generate_parse_info_impl(struct_ident, &field_infos, &macro_cfg);
 
-    // Build up the hidden CLI struct fields, config struct fields, and merge expressions
-    let mut cli_struct_fields = Vec::new();
-    let mut cfg_struct_fields = Vec::new();
-    let mut merge_stmts = Vec::new();
+    let debug_impl = generate_debug_impl(struct_ident, generics, &field_infos);
+    let serialize_impl = generate_serialize_impl(struct_ident, generics, &field_infos);
 
-    for pf in &parsed_fields {
-        // Generate the appropriate tokens
-        let cli_ts_opt = generate_cli_field_tokens(pf);
-        let cfg_ts_opt = generate_config_field_tokens(pf);
-        let merge_expr = generate_merge_expr(pf);
-
-        if let Some(ts) = cli_ts_opt {
-            cli_struct_fields.push(ts);
-        }
-        if let Some(ts) = cfg_ts_opt {
-            cfg_struct_fields.push(ts);
-        }
-
-        let field_name = &pf.ident;
-        merge_stmts.push(quote! {
-            #field_name: #merge_expr
-        });
-    }
-
-    // Add special config fields to the CLI struct
-    cli_struct_fields.push(quote! {
-        /// If true, skip reading any config file
-        #[arg(long = "no-config", default_value_t = false)]
-        pub __no_config: bool,
-
-        /// Explicit config-file path
-        #[arg(long = "config-file")]
-        pub __config_file: Option<std::path::PathBuf>,
-
-        /// Optional raw config string in JSON/YAML/TOML
-        #[arg(long = "config")]
-        pub __raw_config: Option<String>,
-    });
-
-    let cli_struct_ident = syn::Ident::new(&format!("__{}_Cli", struct_name), Span::call_site());
-    let cfg_struct_ident = syn::Ident::new(&format!("__{}_Cfg", struct_name), Span::call_site());
-    let num_fields = parsed_fields.len();
-    let field_names = parsed_fields.iter().map(|pf| &pf.ident);
-
-    // We add #[command(name="advanced")] below. Adjust or remove as needed.
     let expanded = quote! {
-        #[derive(::clap::Parser, Debug, Default)]
-        #[command(name = "advanced")]
-        struct #cli_struct_ident {
-            #(#cli_struct_fields),*
-        }
-
-        #[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
-        struct #cfg_struct_ident {
-            #(#cfg_struct_fields),*
-        }
-
-        impl #struct_name #generics {
-            pub fn parse_with_default_file_name(default_file_name: &str) -> Self {
-                use ::clap::Parser;
-                let cli = #cli_struct_ident::parse();
-
-                if cli.__no_config {
-                    let cfg = #cfg_struct_ident::default();
-                    return Self::from_parts(cli, cfg);
-                }
-
-                let path = if let Some(ref p) = cli.__config_file {
-                    Some(p.clone())
-                } else {
-                    find_config_by_walking_up(default_file_name)
-                };
-
-                let mut loaded_cfg = match load_config_file(path.as_ref()) {
-                    Ok(cfg) => cfg,
-                    Err(e) => {
-                        if let Some(ref path) = path {
-                            eprintln!("Warning: could not load config file {}: {}", path.display(), e);
-                        }
-                        #cfg_struct_ident::default()
-                    }
-                };
-
-                if let Some(ref raw) = cli.__raw_config {
-                    if let Ok(extra) = parse_raw_config(raw) {
-                        loaded_cfg = merge_configs(loaded_cfg, extra);
-                    } else {
-                        eprintln!("Warning: failed to parse raw config from --config");
-                    }
-                }
-
-                Self::from_parts(cli, loaded_cfg)
+        impl #generics #struct_ident #generics {
+            pub fn parse_info() -> (Self, Option<std::path::PathBuf>, Option<&'static str>) {
+                #parse_info_impl
             }
-
             pub fn parse() -> Self {
-                Self::parse_with_default_file_name("config.yaml")
-            }
-
-            pub fn parse_from<I, T>(iter: I) -> Self
-            where
-                I: IntoIterator<Item = T>,
-                T: Into<std::ffi::OsString> + Clone,
-            {
-                use ::clap::Parser;
-                let cli = #cli_struct_ident::parse_from(iter);
-                let cfg = #cfg_struct_ident::default();
-                Self::from_parts(cli, cfg)
-            }
-
-            fn from_parts(cli: #cli_struct_ident, cfg: #cfg_struct_ident) -> Self {
-                Self {
-                    #(#merge_stmts),*
-                }
+                Self::parse_info().0
             }
         }
 
-        // Implement Serialize for the final user struct
-        impl #generics serde::Serialize for #struct_name #generics {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: serde::Serializer
-            {
-                use serde::ser::SerializeStruct;
-                let mut st = serializer.serialize_struct(stringify!(#struct_name), #num_fields)?;
-                #( st.serialize_field(stringify!(#field_names), &self.#field_names)?; )*
-                st.end()
-            }
-        }
-
-        fn find_config_by_walking_up(file_name: &str) -> Option<std::path::PathBuf> {
-            let mut dir = std::env::current_dir().ok()?;
-            loop {
-                let candidate = dir.join(file_name);
-                if candidate.is_file() {
-                    if let Some(conflict) = has_conflicting_configs(&dir, file_name) {
-                        eprintln!(
-                            "Error: Multiple config files found ({:?} and {:?}). \
-                             Use --config-file to pick one.",
-                            candidate.file_name().unwrap_or_default(),
-                            conflict.file_name().unwrap_or_default()
-                        );
-                        std::process::exit(2);
-                    }
-                    return Some(candidate);
-                }
-                if !dir.pop() {
-                    break;
-                }
-            }
-            None
-        }
-
-        fn has_conflicting_configs(dir: &std::path::Path, file_name: &str) -> Option<std::path::PathBuf> {
-            let known_exts = ["yaml", "yml", "json", "toml"];
-            let base_name = std::path::Path::new(file_name)
-                .file_stem()
-                .map(|os| os.to_string_lossy().to_string())?;
-            let expected_ext = std::path::Path::new(file_name)
-                .extension()
-                .map(|os| os.to_string_lossy().to_string())
-                .unwrap_or_default();
-
-            let entries = std::fs::read_dir(dir).ok()?;
-            for e in entries.flatten() {
-                let path = e.path();
-                if path.is_file() {
-                    if let Some(stem) = path.file_stem() {
-                        if stem.to_string_lossy() == base_name {
-                            if let Some(ext) = path.extension() {
-                                let ext_s = ext.to_string_lossy();
-                                if ext_s != expected_ext && known_exts.contains(&ext_s.as_ref()) {
-                                    return Some(path);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            None
-        }
-
-        fn load_config_file(path: Option<&std::path::PathBuf>) -> Result<#cfg_struct_ident, Box<dyn std::error::Error>> {
-            if let Some(p) = path {
-                let content = std::fs::read_to_string(p)?;
-                let ext = p.extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-
-                return match ext.as_str() {
-                    "json" => Ok(serde_json::from_str(&content)?),
-                    "toml" => Ok(toml::from_str(&content)?),
-                    _      => Ok(serde_yaml::from_str(&content)?), // default to YAML
-                };
-            }
-            Ok(#cfg_struct_ident::default())
-        }
-
-        fn parse_raw_config(raw: &str) -> Result<#cfg_struct_ident, Box<dyn std::error::Error>> {
-            // Try JSON -> YAML -> TOML
-            if let Ok(val) = serde_json::from_str(raw) {
-                return Ok(val);
-            }
-            if let Ok(val) = serde_yaml::from_str(raw) {
-                return Ok(val);
-            }
-            if let Ok(val) = toml::from_str(raw) {
-                return Ok(val);
-            }
-            Err("Cannot parse --config <RAW> as JSON, YAML, or TOML".into())
-        }
-
-        fn merge_configs(mut base: #cfg_struct_ident, other: #cfg_struct_ident) -> #cfg_struct_ident {
-            let base_json = match serde_json::to_value(&base) {
-                Ok(val) => val,
-                Err(_) => return base,
-            };
-            let other_json = match serde_json::to_value(&other) {
-                Ok(val) => val,
-                Err(_) => return base,
-            };
-            let merged = deep_merge_json(base_json, other_json);
-            match serde_json::from_value(merged) {
-                Ok(val) => val,
-                Err(_) => base,
-            }
-        }
-
-        fn deep_merge_json(base: serde_json::Value, over: serde_json::Value) -> serde_json::Value {
-            match (base, over) {
-                (serde_json::Value::Object(mut b), serde_json::Value::Object(o)) => {
-                    for (k, v) in o {
-                        if !v.is_null() {
-                            let old = b.remove(&k).unwrap_or(serde_json::Value::Null);
-                            b.insert(k, deep_merge_json(old, v));
-                        }
-                    }
-                    serde_json::Value::Object(b)
-                }
-                (_, over_any) => over_any,
-            }
-        }
+        #debug_impl
+        #serialize_impl
     };
 
     Ok(expanded)
 }
 
-fn parse_one_field(field: &Field) -> syn::Result<FieldInfo> {
-    let mut availability = None;
-    let mut mv_behavior = MultiValueBehavior::default();
-    let mut arg_attrs = ArgAttributes::default();
+/// Generate parse_info: ephemeral CLI + ephemeral config => unify.
+fn generate_parse_info_impl(
+    struct_ident: &syn::Ident,
+    fields: &[FieldInfo],
+    macro_cfg: &MacroConfig,
+) -> TokenStream2 {
+    let base_name = &macro_cfg.base_name;
+    let fmts = &macro_cfg.formats;
+    let fmts_list: Vec<_> = fmts.iter().map(|s| s.as_str()).collect();
 
-    for attr in &field.attrs {
-        let path_ident = match attr.path().get_ident() {
-            Some(i) => i.to_string(),
-            None => continue,
+    // ephemeral CLI
+    let cli_ident = syn::Ident::new(&format!("__{}_Cli", struct_ident), Span::call_site());
+    let cli_fields = fields
+        .iter()
+        .filter(|f| {
+            !matches!(
+                f.arg_attrs.availability,
+                FieldAvailability::ConfigOnly | FieldAvailability::Internal
+            )
+        })
+        .map(generate_cli_field);
+
+    let cli_extras = quote! {
+        #[clap(long="no-config", default_value_t=false)]
+        __no_config: bool,
+
+        #[clap(long="config-file")]
+        __config_file: Option<std::path::PathBuf>,
+    };
+    let build_cli_struct = quote! {
+        #[derive(::clap::Parser, ::std::fmt::Debug, ::std::default::Default)]
+        struct #cli_ident {
+            #cli_extras
+            #(#cli_fields),*
+        }
+    };
+
+    // ephemeral config
+    let cfg_ident = syn::Ident::new(&format!("__{}_Cfg", struct_ident), Span::call_site());
+    let cfg_fields = fields
+        .iter()
+        .filter(|f| {
+            !matches!(
+                f.arg_attrs.availability,
+                FieldAvailability::CliOnly | FieldAvailability::Internal
+            )
+        })
+        .map(generate_config_field);
+    let build_cfg_struct = quote! {
+        #[derive(::serde::Deserialize, ::std::fmt::Debug, ::std::default::Default)]
+        struct #cfg_ident {
+            #(#cfg_fields),*
+        }
+    };
+
+    let unify_stmts = fields.iter().map(unify_field);
+
+    let inline_helpers = quote! {
+        fn __inline_guess_format(path: &std::path::Path, known_formats: &[&str]) -> Option<&'static str> {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+                for &f in known_formats {
+                    if ext == f {
+                        return Some(Box::leak(f.to_string().into_boxed_str()));
+                    }
+                }
+            }
+            None
+        }
+
+        fn __inline_find_config(base_name: &str, fmts: &[&str]) -> Option<std::path::PathBuf> {
+            let mut dir = std::env::current_dir().ok()?;
+            let mut found: Option<std::path::PathBuf> = None;
+
+            loop {
+                let mut found_this = vec![];
+                for &f in fmts {
+                    let candidate = dir.join(format!("{}.{}", base_name, f));
+                    if candidate.is_file() {
+                        found_this.push(candidate);
+                    }
+                }
+                if found_this.len() > 1 {
+                    eprintln!("Error: multiple config files in same dir: {:?}", found_this);
+                    std::process::exit(2);
+                } else if found_this.len() == 1 {
+                    if found.is_some() {
+                        eprintln!(
+                            "Error: multiple config files found walking up: {:?} and {:?}",
+                            found.as_ref().unwrap(), found_this[0]
+                        );
+                        std::process::exit(2);
+                    }
+                    found = Some(found_this.remove(0));
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
+            found
+        }
+    };
+
+    quote! {
+        #build_cli_struct
+        #build_cfg_struct
+
+        use ::clap::Parser;
+        let cli = #cli_ident::parse();
+
+        #inline_helpers
+
+        let mut used_path: Option<std::path::PathBuf> = None;
+        let mut used_format: Option<&'static str> = None;
+
+        let mut config_data = ::config::Config::builder();
+        if !cli.__no_config {
+            if let Some(ref path) = cli.__config_file {
+                used_path = Some(path.clone());
+                let format = __inline_guess_format(path, &[#(#fmts_list),*]);
+                if let Some(fmt) = format {
+                    let file = match fmt {
+                        "yaml" | "yml" => ::config::File::from(path.as_path()).format(::config::FileFormat::Yaml),
+                        "json" => ::config::File::from(path.as_path()).format(::config::FileFormat::Json),
+                        "toml" => ::config::File::from(path.as_path()).format(::config::FileFormat::Toml),
+                        _ => ::config::File::from(path.as_path()).format(::config::FileFormat::Yaml),
+                    };
+                    config_data = config_data.add_source(file);
+                }
+                used_format = format;
+            } else if let Some(found) = __inline_find_config(#base_name, &[#(#fmts_list),*]) {
+                used_path = Some(found.clone());
+                let format = __inline_guess_format(&found, &[#(#fmts_list),*]);
+                if let Some(fmt) = format {
+                    let file = match fmt {
+                        "yaml" | "yml" => ::config::File::from(found.as_path()).format(::config::FileFormat::Yaml),
+                        "json" => ::config::File::from(found.as_path()).format(::config::FileFormat::Json),
+                        "toml" => ::config::File::from(found.as_path()).format(::config::FileFormat::Toml),
+                        _ => ::config::File::from(found.as_path()).format(::config::FileFormat::Yaml),
+                    };
+                    config_data = config_data.add_source(file);
+                }
+                used_format = format;
+            }
+        }
+
+        let built = config_data.build().unwrap_or_else(|e| {
+            eprintln!("Failed to build config: {}", e);
+            ::config::Config::default()
+        });
+        let ephemeral_cfg: #cfg_ident = built.clone().try_deserialize().unwrap_or_else(|e| {
+            eprintln!("Failed to deserialize config into struct: {}", e);
+            eprintln!("Config data after build: {:#?}", built);
+            #cfg_ident::default()
+        });
+
+
+        let final_struct = #struct_ident {
+            #(#unify_stmts),*
+        };
+        (final_struct, used_path, used_format)
+    }
+}
+
+/// Generate ephemeral CLI field if field is not config_only
+fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
+    let ident = &field.ident;
+    let kebab_default = ident.to_string().to_kebab_case();
+    let final_name = field.arg_attrs.name.clone().unwrap_or(kebab_default);
+    let name_lit = LitStr::new(&final_name, Span::call_site());
+
+    // short?
+    let short_attr = if let Some(ch) = field.arg_attrs.short {
+        quote!(short=#ch,)
+    } else {
+        quote!()
+    };
+
+    // bool special case: parse the default_value if it is "true" or "false"
+    // If "default_value" is given, we do `default_value_t = true/false` and skip ArgAction::SetTrue
+    // Otherwise, we do `action=SetTrue`
+    if field.is_bool_type() {
+        if let Some(ref dv) = field.arg_attrs.default_value {
+            // user gave something like default_value="false"
+            // parse it as a bool
+            let is_true = dv.eq_ignore_ascii_case("true");
+            let is_false = dv.eq_ignore_ascii_case("false");
+            // fallback if user typed something else
+            if !is_true && !is_false {
+                // produce a compile error or ignore?
+                // Let's produce an error to avoid confusion
+                let msg = format!(
+                    "For a bool field, default_value must be \"true\" or \"false\", got {}",
+                    dv
+                );
+                return quote! {
+                    compile_error!(#msg);
+                    #ident: ()
+                };
+            }
+            // produce e.g. #[clap(long="debug", short='d', default_value_t=false)]
+            let bool_lit = if is_true { quote!(true) } else { quote!(false) };
+            quote! {
+                #[clap(long=#name_lit, #short_attr default_value_t=#bool_lit)]
+                #ident: Option<bool>
+            }
+        } else {
+            // no default => use action=SetTrue
+            quote! {
+                #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue)]
+                #ident: Option<bool>
+            }
+        }
+    } else {
+        // Non-boolean field
+        // If user gave default_value, we produce #[clap(default_value="dv")]
+        // else skip
+        let dv_attr = if let Some(dv) = &field.arg_attrs.default_value {
+            let dv_lit = LitStr::new(dv, Span::call_site());
+            quote!(default_value=#dv_lit,)
+        } else {
+            quote!()
         };
 
-        match path_ident.as_str() {
-            "cli_only" => {
-                ensure_avail_none(&availability, attr)?;
-                availability = Some(FieldAvailability::CliOnly);
-            }
-            "config_only" => {
-                ensure_avail_none(&availability, attr)?;
-                availability = Some(FieldAvailability::ConfigOnly);
-            }
-            "cli_and_config" => {
-                ensure_avail_none(&availability, attr)?;
-                availability = Some(FieldAvailability::CliAndConfig);
-            }
-            "positional" => {
-                // We'll mark this field as positional, so we skip generating `long/short`
-                arg_attrs.is_positional = true;
-            }
-            "config_arg" => {
-                let meta = attr.meta.require_list()?;
-                for nested in meta.parse_args_with(
-                    syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
-                )? {
-                    match nested {
-                        Meta::Path(_) => {}
-                        Meta::NameValue(MetaNameValue { path, value, .. }) => {
-                            let key = path.get_ident().map(|i| i.to_string()).unwrap_or_default();
-                            if let syn::Expr::Lit(l) = value {
-                                match l.lit {
-                                    Lit::Str(sval) => match key.as_str() {
-                                        "default_value" => {
-                                            arg_attrs.default_value = Some(sval.value());
-                                        }
-                                        "long" => {
-                                            arg_attrs.long = Some(sval.value());
-                                        }
-                                        "name" => {
-                                            // treat "name" as "long"
-                                            arg_attrs.long = Some(sval.value());
-                                        }
-                                        _ => {}
-                                    },
-                                    Lit::Char(cval) => {
-                                        if key == "short" {
-                                            arg_attrs.short = Some(cval.value());
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        Meta::List(_) => {}
-                    }
-                }
-            }
-            "multi_value_behavior" => {
-                let meta = attr.meta.require_list()?;
-                for nested in meta.parse_args_with(
-                    syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
-                )? {
-                    if let Meta::NameValue(MetaNameValue {
-                        value:
-                            syn::Expr::Lit(syn::ExprLit {
-                                lit: Lit::Str(s), ..
-                            }),
-                        ..
-                    }) = nested
-                    {
-                        match s.value().as_str() {
-                            "extend" => mv_behavior = MultiValueBehavior::Extend,
-                            "overwrite" => mv_behavior = MultiValueBehavior::Overwrite,
-                            other => {
-                                return Err(syn::Error::new_spanned(
-                                    attr,
-                                    format!("Invalid multi_value_behavior: {}", other),
-                                ))
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
+        // If Vec => ArgAction::Append
+        let is_vec = field.is_vec_type();
+        let multi = if is_vec {
+            quote!(num_args = 1.., action = ::clap::ArgAction::Append,)
+        } else {
+            quote!()
+        };
+
+        // store as Option<T>
+        let field_ty = {
+            let t = &field.ty;
+            quote!(Option<#t>)
+        };
+
+        quote! {
+            #[clap(long=#name_lit, #short_attr #dv_attr #multi)]
+            #ident: #field_ty
         }
     }
-
-    let final_avail = availability.unwrap_or(FieldAvailability::CliAndConfig);
-
-    Ok(FieldInfo {
-        availability: final_avail,
-        multi_value_behavior: mv_behavior,
-        arg_attrs,
-        ident: field
-            .ident
-            .clone()
-            .ok_or_else(|| syn::Error::new(field.span(), "Field must be named"))?,
-        ty: field.ty.clone(),
-    })
 }
 
-/// Validates that only one availability attribute is specified per field
-fn ensure_avail_none(avail: &Option<FieldAvailability>, attr: &Attribute) -> syn::Result<()> {
-    if avail.is_some() {
-        Err(syn::Error::new_spanned(
-            attr,
-            "Only one of [cli_only, config_only, cli_and_config] is allowed per field",
-        ))
+/// Generate ephemeral config field if field is not cli_only
+fn generate_config_field(field: &FieldInfo) -> TokenStream2 {
+    let ident = &field.ident;
+    let ty = &field.ty;
+
+    // Only use rename if explicitly specified
+    let rename_attr = if let Some(name) = &field.arg_attrs.name {
+        let name_lit = LitStr::new(name, Span::call_site());
+        quote!(#[serde(rename = #name_lit)])
     } else {
-        Ok(())
+        quote!()
+    };
+
+    quote! {
+        #rename_attr
+        #[serde(default)]
+        pub #ident: #ty
     }
 }
 
-/// Generates the field definition for the hidden CLI struct.
-/// Handles:
-/// - Optional wrapping for all fields
-/// - Special handling for bool fields
-/// - CLI argument customization
-fn generate_cli_field_tokens(pf: &FieldInfo) -> Option<TokenStream2> {
-    match pf.availability {
-        FieldAvailability::ConfigOnly => None,
-        FieldAvailability::CliOnly | FieldAvailability::CliAndConfig => {
-            let field_name = &pf.ident;
-            let ty = &pf.ty;
-            let ArgAttributes {
-                name,
-                short,
-                long,
-                default_value,
-                is_positional,
-            } = &pf.arg_attrs;
-
-            // name fallback for 'long' unless it's positional
-            let name_str = name.clone().unwrap_or_else(|| field_name.to_string());
-            let default_attr = default_value
-                .as_ref()
-                .map(|dv| quote!(default_value = #dv, ))
-                .unwrap_or_default();
-
-            // If bool, we parse it via Option<bool> + ArgAction::SetTrue
-            let (final_ty, action) = if is_bool_type(ty) {
-                (
-                    quote!(Option<bool>),
-                    quote!(action = ::clap::ArgAction::SetTrue,),
-                )
-            } else {
-                (quote!(Option<#ty>), quote!())
-            };
-
-            // If it's marked #[positional], skip long/short and let Clap treat it as a positional.
-            if *is_positional {
-                Some(quote! {
-                    #[arg(#action #default_attr)]
-                    pub #field_name: #final_ty
-                })
-            } else {
-                let short_attr = short.map(|c| quote!(short = #c,));
-                let long_attr = if let Some(ref l) = long {
-                    quote!(long = #l,)
-                } else {
-                    quote!(long = #name_str,)
-                };
-                Some(quote! {
-                    #[arg(#short_attr #long_attr #default_attr #action)]
-                    pub #field_name: #final_ty
-                })
-            }
-        }
-    }
-}
-
-fn generate_config_field_tokens(pf: &FieldInfo) -> Option<TokenStream2> {
-    match pf.availability {
-        FieldAvailability::CliOnly => None,
-        FieldAvailability::ConfigOnly | FieldAvailability::CliAndConfig => {
-            let field_name = &pf.ident;
-            let ty = &pf.ty;
-            Some(quote! {
-                #[serde(default)]
-                pub #field_name: #ty
-            })
-        }
-    }
-}
-
-fn generate_merge_expr(pf: &FieldInfo) -> TokenStream2 {
-    let field_name = &pf.ident;
-    match pf.availability {
+/// Merge ephemeral CLI + ephemeral config => final
+fn unify_field(field: &FieldInfo) -> TokenStream2 {
+    let ident = &field.ident;
+    match field.arg_attrs.availability {
         FieldAvailability::CliOnly => {
-            quote! {
-                cli.#field_name.unwrap_or_default()
+            if field.is_vec_type() {
+                quote!(#ident: cli.#ident.unwrap_or_default())
+            } else if field.is_bool_type() {
+                quote!(#ident: cli.#ident.unwrap_or(false))
+            } else {
+                quote!(#ident: cli.#ident.unwrap_or_default())
             }
         }
         FieldAvailability::ConfigOnly => {
-            quote! {
-                cfg.#field_name
-            }
+            quote!(#ident: ephemeral_cfg.#ident)
         }
         FieldAvailability::CliAndConfig => {
-            let is_vec = is_vec_type(&pf.ty);
-            if is_vec {
-                match pf.multi_value_behavior {
+            if field.is_vec_type() {
+                match field.arg_attrs.multi_value_behavior {
                     MultiValueBehavior::Extend => quote! {
-                        {
-                            let mut merged = cfg.#field_name;
-                            if let Some(cli_vec) = cli.#field_name {
+                        #ident: {
+                            let mut merged = ephemeral_cfg.#ident.clone();
+                            if let Some(cli_vec) = cli.#ident {
                                 merged.extend(cli_vec);
                             }
                             merged
                         }
                     },
                     MultiValueBehavior::Overwrite => quote! {
-                        if let Some(cli_vec) = cli.#field_name {
-                            cli_vec
-                        } else {
-                            cfg.#field_name
-                        }
+                        #ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident.clone())
                     },
                 }
+            } else if field.is_bool_type() {
+                quote!(#ident: cli.#ident.unwrap_or(ephemeral_cfg.#ident))
             } else {
-                quote! {
-                    cli.#field_name.unwrap_or(cfg.#field_name)
-                }
+                quote!(#ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident))
+            }
+        }
+        FieldAvailability::Internal => {
+            quote!(#ident: Default::default())
+        }
+    }
+}
+
+/// Implement Debug for final struct
+fn generate_debug_impl(
+    struct_ident: &syn::Ident,
+    generics: &syn::Generics,
+    fields: &[FieldInfo],
+) -> TokenStream2 {
+    let field_idents = fields.iter().map(|fi| &fi.ident);
+    quote! {
+        impl #generics ::std::fmt::Debug for #struct_ident #generics {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                let mut dbg = f.debug_struct(stringify!(#struct_ident));
+                #( dbg.field(stringify!(#field_idents), &self.#field_idents); )*
+                dbg.finish()
             }
         }
     }
 }
 
-fn is_bool_type(ty: &syn::Type) -> bool {
-    if let syn::Type::Path(tp) = ty {
-        if let Some(seg) = tp.path.segments.last() {
-            return seg.ident == "bool";
-        }
-    }
-    false
-}
+/// Implement Serialize for final struct
+fn generate_serialize_impl(
+    struct_ident: &syn::Ident,
+    generics: &syn::Generics,
+    fields: &[FieldInfo],
+) -> TokenStream2 {
+    let field_idents = fields.iter().map(|fi| &fi.ident);
+    let field_names = fields.iter().map(|fi| fi.ident.to_string());
+    let num_fields = fields.len();
 
-fn is_vec_type(ty: &syn::Type) -> bool {
-    if let syn::Type::Path(tp) = ty {
-        if let Some(seg) = tp.path.segments.last() {
-            if seg.ident == "Vec" {
-                return true;
+    quote! {
+        impl #generics ::serde::Serialize for #struct_ident #generics {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: ::serde::Serializer
+            {
+                use ::serde::ser::SerializeStruct;
+                let mut st = serializer.serialize_struct(
+                    stringify!(#struct_ident),
+                    #num_fields
+                )?;
+                #(
+                    st.serialize_field(#field_names, &self.#field_idents)?;
+                )*
+                st.end()
             }
         }
     }
-    false
 }
