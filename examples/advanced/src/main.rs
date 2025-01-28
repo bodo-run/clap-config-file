@@ -31,9 +31,9 @@ struct AdvancedConfig {
     )]
     pub server_port: u16,
 
-    // TODO: just specifying --debug will set it to true
-    #[config_arg(default_value = "false")]
-    pub debug: Option<bool>,
+    // just specifying --debug will set it to true
+    #[config_arg()]
+    pub debug: bool,
 
     // some config files expand environment variables
     // let's say you want the secret never to be set from the CLI so
