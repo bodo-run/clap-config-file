@@ -74,3 +74,43 @@ fn cli_config_only_field_error() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn test_positional_args() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    std::fs::write(
+        dir.path().join("advanced-config.yaml"),
+        "database_url: \"sqlite://test.db\"\n",
+    )?;
+
+    Command::cargo_bin("advanced")?
+        .current_dir(dir.path())
+        .arg("file1.txt")
+        .arg("file2.txt")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("paths: [")
+                .and(predicate::str::contains("\"file1.txt\""))
+                .and(predicate::str::contains("\"file2.txt\"")),
+        );
+
+    Ok(())
+}
+
+#[test]
+fn test_positional_args_cannot_override_cli_only() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    std::fs::write(
+        dir.path().join("advanced-config.yaml"),
+        "paths: [\"from_config.txt\"]\n",
+    )?;
+
+    Command::cargo_bin("advanced")?
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("paths: []"));
+
+    Ok(())
+}

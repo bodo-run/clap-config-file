@@ -13,6 +13,7 @@ pub struct ArgAttributes {
     pub name: Option<String>,
     pub short: Option<char>,
     pub default_value: Option<String>,
+    pub positional: bool,
     pub availability: FieldAvailability,
     pub multi_value_behavior: MultiValueBehavior,
 }
@@ -129,77 +130,106 @@ pub fn parse_fields(
                     for nested in meta_list.parse_args_with(
                         syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
                     )? {
-                        if let Meta::NameValue(MetaNameValue { path, value, .. }) = nested {
-                            let key = path.get_ident().map(|i| i.to_string()).unwrap_or_default();
-                            match (key.as_str(), value) {
-                                (
-                                    "name",
-                                    syn::Expr::Lit(syn::ExprLit {
-                                        lit: Lit::Str(v), ..
-                                    }),
-                                ) => {
-                                    arg_attrs.name = Some(v.value());
+                        match nested {
+                            Meta::NameValue(MetaNameValue { path, value, .. }) => {
+                                let key =
+                                    path.get_ident().map(|i| i.to_string()).unwrap_or_default();
+                                match (key.as_str(), value) {
+                                    (
+                                        "name",
+                                        syn::Expr::Lit(syn::ExprLit {
+                                            lit: Lit::Str(v), ..
+                                        }),
+                                    ) => {
+                                        arg_attrs.name = Some(v.value());
+                                    }
+                                    (
+                                        "short",
+                                        syn::Expr::Lit(syn::ExprLit {
+                                            lit: Lit::Char(v), ..
+                                        }),
+                                    ) => {
+                                        arg_attrs.short = Some(v.value());
+                                    }
+                                    (
+                                        "default_value",
+                                        syn::Expr::Lit(syn::ExprLit {
+                                            lit: Lit::Str(v), ..
+                                        }),
+                                    ) => {
+                                        arg_attrs.default_value = Some(v.value());
+                                    }
+                                    (
+                                        "accept_from",
+                                        syn::Expr::Lit(syn::ExprLit {
+                                            lit: Lit::Str(v), ..
+                                        }),
+                                    ) => {
+                                        if arg_attrs.positional {
+                                            return Err(syn::Error::new(
+                                                attr.span(),
+                                                "Positional arguments must be CLI-only. Remove accept_from attribute.",
+                                            ));
+                                        }
+                                        match v.value().as_str() {
+                                            "cli_only" => {
+                                                arg_attrs.availability = FieldAvailability::CliOnly
+                                            }
+                                            "config_only" => {
+                                                arg_attrs.availability =
+                                                    FieldAvailability::ConfigOnly
+                                            }
+                                            "cli_and_config" => {
+                                                arg_attrs.availability =
+                                                    FieldAvailability::CliAndConfig
+                                            }
+                                            other => {
+                                                return Err(syn::Error::new(
+                                                    attr.span(),
+                                                    format!("Invalid accept_from: {}", other),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    (
+                                        "multi_value_behavior",
+                                        syn::Expr::Lit(syn::ExprLit {
+                                            lit: Lit::Str(v), ..
+                                        }),
+                                    ) => match v.value().as_str() {
+                                        "extend" => {
+                                            arg_attrs.multi_value_behavior =
+                                                MultiValueBehavior::Extend
+                                        }
+                                        "overwrite" => {
+                                            arg_attrs.multi_value_behavior =
+                                                MultiValueBehavior::Overwrite
+                                        }
+                                        other => {
+                                            return Err(syn::Error::new(
+                                                attr.span(),
+                                                format!("Invalid multi_value_behavior: {}", other),
+                                            ));
+                                        }
+                                    },
+                                    _ => {}
                                 }
-                                (
-                                    "short",
-                                    syn::Expr::Lit(syn::ExprLit {
-                                        lit: Lit::Char(v), ..
-                                    }),
-                                ) => {
-                                    arg_attrs.short = Some(v.value());
-                                }
-                                (
-                                    "default_value",
-                                    syn::Expr::Lit(syn::ExprLit {
-                                        lit: Lit::Str(v), ..
-                                    }),
-                                ) => {
-                                    arg_attrs.default_value = Some(v.value());
-                                }
-                                (
-                                    "accept_from",
-                                    syn::Expr::Lit(syn::ExprLit {
-                                        lit: Lit::Str(v), ..
-                                    }),
-                                ) => match v.value().as_str() {
-                                    "cli_only" => {
-                                        arg_attrs.availability = FieldAvailability::CliOnly
-                                    }
-                                    "config_only" => {
-                                        arg_attrs.availability = FieldAvailability::ConfigOnly
-                                    }
-                                    "cli_and_config" => {
-                                        arg_attrs.availability = FieldAvailability::CliAndConfig
-                                    }
-                                    other => {
-                                        return Err(syn::Error::new(
-                                            attr.span(),
-                                            format!("Invalid accept_from: {}", other),
-                                        ));
-                                    }
-                                },
-                                (
-                                    "multi_value_behavior",
-                                    syn::Expr::Lit(syn::ExprLit {
-                                        lit: Lit::Str(v), ..
-                                    }),
-                                ) => match v.value().as_str() {
-                                    "extend" => {
-                                        arg_attrs.multi_value_behavior = MultiValueBehavior::Extend
-                                    }
-                                    "overwrite" => {
-                                        arg_attrs.multi_value_behavior =
-                                            MultiValueBehavior::Overwrite
-                                    }
-                                    other => {
-                                        return Err(syn::Error::new(
-                                            attr.span(),
-                                            format!("Invalid multi_value_behavior: {}", other),
-                                        ));
-                                    }
-                                },
-                                _ => {}
                             }
+                            Meta::Path(path) => {
+                                if let Some(kw) = path.get_ident() {
+                                    if kw == "positional" {
+                                        arg_attrs.positional = true;
+                                        // Force positional arguments to be CLI-only
+                                        arg_attrs.availability = FieldAvailability::CliOnly;
+                                    } else {
+                                        return Err(syn::Error::new(
+                                            path.span(),
+                                            format!("Unknown config_arg flag: {}", kw),
+                                        ));
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }

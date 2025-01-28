@@ -234,76 +234,88 @@ fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
     let final_name = field.arg_attrs.name.clone().unwrap_or(kebab_default);
     let name_lit = LitStr::new(&final_name, Span::call_site());
 
-    // short?
-    let short_attr = if let Some(ch) = field.arg_attrs.short {
-        quote!(short=#ch,)
-    } else {
-        quote!()
-    };
-
-    // bool special case: parse the default_value if it is "true" or "false"
-    // If "default_value" is given, we do `default_value_t = true/false` and skip ArgAction::SetTrue
-    // Otherwise, we do `action=SetTrue`
-    if field.is_bool_type() {
-        if let Some(ref dv) = field.arg_attrs.default_value {
-            // user gave something like default_value="false"
-            // parse it as a bool
-            let is_true = dv.eq_ignore_ascii_case("true");
-            let is_false = dv.eq_ignore_ascii_case("false");
-            // fallback if user typed something else
-            if !is_true && !is_false {
-                // produce a compile error or ignore?
-                // Let's produce an error to avoid confusion
-                let msg = format!(
-                    "For a bool field, default_value must be \"true\" or \"false\", got {}",
-                    dv
-                );
-                return quote! {
-                    compile_error!(#msg);
-                    #ident: ()
-                };
-            }
-            // produce e.g. #[clap(long="debug", short='d', default_value_t=false)]
-            let bool_lit = if is_true { quote!(true) } else { quote!(false) };
+    // If positional, we handle it differently
+    if field.arg_attrs.positional {
+        if field.is_vec_type() {
             quote! {
-                #[clap(long=#name_lit, #short_attr default_value_t=#bool_lit)]
-                #ident: Option<bool>
+                #[clap(value_name=#name_lit, num_args=1.., action=::clap::ArgAction::Append)]
+                #ident: Option<Vec<String>>
             }
         } else {
-            // no default => use action=SetTrue
             quote! {
-                #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue)]
-                #ident: Option<bool>
+                #[clap(value_name=#name_lit)]
+                #ident: Option<String>
             }
         }
     } else {
-        // Non-boolean field
-        // If user gave default_value, we produce #[clap(default_value="dv")]
-        // else skip
-        let dv_attr = if let Some(dv) = &field.arg_attrs.default_value {
-            let dv_lit = LitStr::new(dv, Span::call_site());
-            quote!(default_value=#dv_lit,)
+        // short?
+        let short_attr = if let Some(ch) = field.arg_attrs.short {
+            quote!(short=#ch,)
         } else {
             quote!()
         };
 
-        // If Vec => ArgAction::Append
-        let is_vec = field.is_vec_type();
-        let multi = if is_vec {
-            quote!(num_args = 1.., action = ::clap::ArgAction::Append,)
+        // bool special case: parse the default_value if it is "true" or "false"
+        // If "default_value" is given, we do `default_value_t = true/false` and skip ArgAction::SetTrue
+        // Otherwise, we do `action=SetTrue`
+        if field.is_bool_type() {
+            if let Some(ref dv) = field.arg_attrs.default_value {
+                // user gave something like default_value="false"
+                // parse it as a bool
+                let is_true = dv.eq_ignore_ascii_case("true");
+                let is_false = dv.eq_ignore_ascii_case("false");
+                // fallback if user typed something else
+                if !is_true && !is_false {
+                    // produce a compile error or ignore?
+                    // Let's produce an error to avoid confusion
+                    let msg = format!(
+                        "For a bool field, default_value must be \"true\" or \"false\", got {}",
+                        dv
+                    );
+                    return quote! {
+                        compile_error!(#msg);
+                        #ident: ()
+                    };
+                }
+                // produce e.g. #[clap(long="debug", short='d', default_value_t=false)]
+                let bool_lit = if is_true { quote!(true) } else { quote!(false) };
+                quote! {
+                    #[clap(long=#name_lit, #short_attr default_value_t=#bool_lit)]
+                    #ident: Option<bool>
+                }
+            } else {
+                // no default => use action=SetTrue
+                quote! {
+                    #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue)]
+                    #ident: Option<bool>
+                }
+            }
         } else {
-            quote!()
-        };
+            // Non-boolean field
+            // If user gave default_value, we produce #[clap(default_value="dv")]
+            // else skip
+            let dv_attr = if let Some(dv) = &field.arg_attrs.default_value {
+                let dv_lit = LitStr::new(dv, Span::call_site());
+                quote!(default_value=#dv_lit,)
+            } else {
+                quote!()
+            };
 
-        // store as Option<T>
-        let field_ty = {
-            let t = &field.ty;
-            quote!(Option<#t>)
-        };
+            let is_vec = field.is_vec_type();
+            let multi = if is_vec {
+                quote!(num_args = 1.., action = ::clap::ArgAction::Append,)
+            } else {
+                quote!()
+            };
+            let field_ty = {
+                let t = &field.ty;
+                quote!(Option<#t>)
+            };
 
-        quote! {
-            #[clap(long=#name_lit, #short_attr #dv_attr #multi)]
-            #ident: #field_ty
+            quote! {
+                #[clap(long=#name_lit, #short_attr #dv_attr #multi)]
+                #ident: #field_ty
+            }
         }
     }
 }
