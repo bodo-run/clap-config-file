@@ -1,9 +1,10 @@
 use clap_config_file::ClapConfigFile;
 use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct ExtraSettings {
     pub nesting_level: i64,
-    pub allow_guest: bool,
+    pub allow_guest: Option<bool>,
 }
 
 /// A single struct for both CLI and config file usage

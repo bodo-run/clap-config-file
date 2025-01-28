@@ -5,7 +5,8 @@ use clap_config_file::ClapConfigFile;
 #[config_file_name = "app-config"]
 #[config_file_formats = "yaml,toml,json"]
 struct AppConfig {
-    pub database_url: String,
+    #[config_arg()]
+    pub database_url: Option<String>,
 
     #[config_arg(default_value = "8080")]
     pub port: u16,
@@ -13,6 +14,7 @@ struct AppConfig {
     #[config_arg(default_value = "false")]
     pub debug: Option<bool>,
 }
+
 fn main() {
     let (cfg, maybe_path, maybe_fmt) = AppConfig::parse_info();
     println!("Final config:\n{:#?}", cfg);

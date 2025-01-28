@@ -43,3 +43,4 @@ path = "examples/basic/src/main.rs"
 [[example]]
 name = "advanced"
 path = "examples/advanced/src/main.rs"
+
