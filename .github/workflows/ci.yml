@@ -17,12 +17,22 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --all-features
+
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: cd examples/basic && cargo build --all-features
+      - run: cd examples/advanced && cargo build --all-features
       - run: cargo test --all-features
       - run: cargo run --example basic
       - run: cargo run --example advanced
