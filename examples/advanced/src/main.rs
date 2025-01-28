@@ -12,7 +12,10 @@ pub struct ExtraSettings {
 #[config_file_name = "advanced-config"]
 #[config_file_formats = "yaml,toml,json"]
 struct AdvancedConfig {
-    // Use all the defaults
+    // Use all the defaults:
+    // - config_file_name = "advanced-config"
+    // - accept_from = "cli_and_config"
+    // - no default value
     #[config_arg()]
     pub database_url: String,
 
@@ -28,20 +31,33 @@ struct AdvancedConfig {
     )]
     pub server_port: u16,
 
+    // TODO: just specifying --debug will set it to true
     #[config_arg(default_value = "false")]
     pub debug: Option<bool>,
 
+    // some config files expand environment variables
+    // let's say you want the secret never to be set from the CLI so
+    // it's not in the history of the CLI
     #[config_arg(accept_from = "config_only")]
     pub special_secret: String,
 
+    // this is a nested struct and can only be set from the config file
     #[config_arg(accept_from = "config_only")]
     pub extra_settings: ExtraSettings,
 
+    // user will extend the list from the config by adding --extend-list=foo1 --extend-list=foo2
     #[config_arg(multi_value_behavior = "extend")]
     pub extend_list: Vec<String>,
 
+    // user will overwrite the list from the config by adding --overwrite-list=foo1 --overwrite-list=foo2
     #[config_arg(multi_value_behavior = "overwrite")]
     pub overwrite_list: Vec<String>,
+
+    // Positional arguments from the CLI, e.g. "file1.txt file2.txt"
+    // Positional arguments are always accepted from the CLI only
+    // We are assuming those are coming as last arguments. (other cases is not supported)
+    #[config_arg(positional)]
+    pub paths: Vec<String>,
 
     // for internal use only. Not configurable from CLI or config file
     // Since config_arg is not used, it will not be included in result of AdvancedConfig::parse_info()
@@ -60,6 +76,7 @@ impl Default for AdvancedConfig {
             extra_settings: cfg.extra_settings,
             extend_list: cfg.extend_list,
             overwrite_list: cfg.overwrite_list,
+            paths: cfg.paths,
             internal_config: "Computed in default initializer".to_string(),
         }
     }
