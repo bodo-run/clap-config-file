@@ -1,6 +1,6 @@
 [package]
 name = "clap-config-file"
-version = "0.3.2"
+version = "0.3.0"
 edition = "2021"
 description = "A proc macro for adding config file support to clap"
 license = "MIT"
