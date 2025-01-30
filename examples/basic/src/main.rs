@@ -5,12 +5,15 @@ use clap_config_file::ClapConfigFile;
 #[config_file_name = "app-config"]
 #[config_file_formats = "yaml,toml,json"]
 struct AppConfig {
+    /// Database URL
     #[config_arg()]
     pub database_url: Option<String>,
 
+    /// Port to run the server on
     #[config_arg(default_value = "8080")]
     pub port: u16,
 
+    /// Debug mode
     #[config_arg(default_value = "false")]
     pub debug: Option<bool>,
 }
