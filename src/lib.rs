@@ -87,10 +87,10 @@ fn generate_parse_info_impl(
         .map(generate_cli_field);
 
     let cli_extras = quote! {
-        #[clap(long="no-config", default_value_t=false)]
+        #[clap(long="no-config", default_value_t=false, help="Do not use a config file")]
         __no_config: bool,
 
-        #[clap(long="config-file")]
+        #[clap(long="config-file", help="Path to the config file")]
         __config_file: Option<std::path::PathBuf>,
     };
     let build_cli_struct = quote! {
@@ -233,17 +233,24 @@ fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
     let kebab_default = ident.to_string().to_kebab_case();
     let final_name = field.arg_attrs.name.clone().unwrap_or(kebab_default);
     let name_lit = LitStr::new(&final_name, Span::call_site());
+    let help_text = &field.arg_attrs.help_text;
+    let help_attr = if help_text.is_empty() {
+        quote!()
+    } else {
+        let help_lit = LitStr::new(help_text, Span::call_site());
+        quote!(help=#help_lit,)
+    };
 
-    // If positional, we handle it differently
     if field.arg_attrs.positional {
+        // For positional arguments
         if field.is_vec_type() {
             quote! {
-                #[clap(value_name=#name_lit, num_args=1.., action=::clap::ArgAction::Append)]
+                #[clap(value_name=#name_lit, num_args=1.., action=::clap::ArgAction::Append, #help_attr)]
                 #ident: Option<Vec<String>>
             }
         } else {
             quote! {
-                #[clap(value_name=#name_lit)]
+                #[clap(value_name=#name_lit, #help_attr)]
                 #ident: Option<String>
             }
         }
@@ -255,21 +262,14 @@ fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
             quote!()
         };
 
-        // bool special case: parse the default_value if it is "true" or "false"
-        // If "default_value" is given, we do `default_value_t = true/false` and skip ArgAction::SetTrue
-        // Otherwise, we do `action=SetTrue`
         if field.is_bool_type() {
+            // Handle bool default_value "true"/"false"
             if let Some(ref dv) = field.arg_attrs.default_value {
-                // user gave something like default_value="false"
-                // parse it as a bool
                 let is_true = dv.eq_ignore_ascii_case("true");
                 let is_false = dv.eq_ignore_ascii_case("false");
-                // fallback if user typed something else
                 if !is_true && !is_false {
-                    // produce a compile error or ignore?
-                    // Let's produce an error to avoid confusion
                     let msg = format!(
-                        "For a bool field, default_value must be \"true\" or \"false\", got {}",
+                        "For bool field, default_value must be \"true\" or \"false\", got {}",
                         dv
                     );
                     return quote! {
@@ -277,30 +277,24 @@ fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
                         #ident: ()
                     };
                 }
-                // produce e.g. #[clap(long="debug", short='d', default_value_t=false)]
                 let bool_lit = if is_true { quote!(true) } else { quote!(false) };
                 quote! {
-                    #[clap(long=#name_lit, #short_attr default_value_t=#bool_lit)]
+                    #[clap(long=#name_lit, #short_attr default_value_t=#bool_lit, #help_attr)]
                     #ident: Option<bool>
                 }
             } else {
-                // no default => use action=SetTrue
                 quote! {
-                    #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue)]
+                    #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue, #help_attr)]
                     #ident: Option<bool>
                 }
             }
         } else {
-            // Non-boolean field
-            // If user gave default_value, we produce #[clap(default_value="dv")]
-            // else skip
             let dv_attr = if let Some(dv) = &field.arg_attrs.default_value {
                 let dv_lit = LitStr::new(dv, Span::call_site());
                 quote!(default_value=#dv_lit,)
             } else {
                 quote!()
             };
-
             let is_vec = field.is_vec_type();
             let multi = if is_vec {
                 quote!(num_args = 1.., action = ::clap::ArgAction::Append,)
@@ -313,13 +307,12 @@ fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
             };
 
             quote! {
-                #[clap(long=#name_lit, #short_attr #dv_attr #multi)]
+                #[clap(long=#name_lit, #short_attr #dv_attr #multi #help_attr)]
                 #ident: #field_ty
             }
         }
     }
 }
-
 /// Generate ephemeral config field if field is not cli_only
 fn generate_config_field(field: &FieldInfo) -> TokenStream2 {
     let ident = &field.ident;

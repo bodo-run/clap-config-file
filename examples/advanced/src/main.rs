@@ -19,7 +19,7 @@ struct AdvancedConfig {
     #[config_arg()]
     pub database_url: String,
 
-    // DocString handling demonstration
+    // DocString handling demonstration: the next line will be printed in help
     /// Port to run the server on
     #[config_arg(
         // Use a different name in the config file

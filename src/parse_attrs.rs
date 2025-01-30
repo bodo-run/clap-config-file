@@ -16,6 +16,8 @@ pub struct ArgAttributes {
     pub positional: bool,
     pub availability: FieldAvailability,
     pub multi_value_behavior: MultiValueBehavior,
+    /// Collected doc-comments (joined into one help string).
+    pub help_text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -109,7 +111,7 @@ pub fn parse_struct_level_attrs(attrs: &[Attribute]) -> syn::Result<MacroConfig>
     Ok(cfg)
 }
 
-/// Parse each field for #[config_arg(...)]
+/// Parse each field for #[config_arg(...)] plus doc comments
 pub fn parse_fields(
     fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
 ) -> syn::Result<Vec<FieldInfo>> {
@@ -244,6 +246,9 @@ pub fn parse_fields(
             arg_attrs.availability = FieldAvailability::CliAndConfig;
         }
 
+        // Collect doc comments first
+        arg_attrs.help_text = gather_doc_comments(&f.attrs);
+
         out.push(FieldInfo {
             ident,
             ty: f.ty.clone(),
@@ -251,4 +256,28 @@ pub fn parse_fields(
         });
     }
     Ok(out)
+}
+
+/// Utility to gather doc comments from attributes and join them into one string
+fn gather_doc_comments(attrs: &[Attribute]) -> String {
+    let mut out = String::new();
+    for attr in attrs {
+        // Rust doc comments become `#[doc = "..."]`
+        if attr.path().is_ident("doc") {
+            if let Meta::NameValue(mnv) = &attr.meta {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &mnv.value
+                {
+                    // Each `///` line is appended with a space
+                    // so it reads nicely in the help text
+                    if !out.is_empty() {
+                        out.push(' ');
+                    }
+                    out.push_str(&s.value());
+                }
+            }
+        }
+    }
+    out.trim().to_string()
 }
