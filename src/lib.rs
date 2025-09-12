@@ -278,51 +278,36 @@ fn generate_cli_field(field: &FieldInfo) -> TokenStream2 {
         };
 
         if field.is_bool_type() {
-            // Handle bool default_value "true"/"false"
-            if let Some(ref dv) = field.arg_attrs.default_value {
-                let is_true = dv.eq_ignore_ascii_case("true");
-                let is_false = dv.eq_ignore_ascii_case("false");
-                if !is_true && !is_false {
-                    let msg = format!(
-                        "For bool field, default_value must be \"true\" or \"false\", got {}",
-                        dv
-                    );
-                    return quote! {
-                        compile_error!(#msg);
-                        #ident: ()
-                    };
-                }
-                let bool_lit = if is_true { quote!(true) } else { quote!(false) };
-                quote! {
-                    #[clap(long=#name_lit, #short_attr default_value_t=#bool_lit, #help_attr)]
-                    #ident: Option<bool>
-                }
-            } else {
-                quote! {
-                    #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue, #help_attr)]
-                    #ident: Option<bool>
-                }
+            // Bool flags: do not set default_value_t; presence sets true
+            quote! {
+                #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue, #help_attr)]
+                #ident: Option<bool>
+            }
+        } else if field.is_option_bool_type() {
+            // Option<bool> flags: presence sets Some(true)
+            quote! {
+                #[clap(long=#name_lit, #short_attr action=::clap::ArgAction::SetTrue, #help_attr)]
+                #ident: Option<bool>
             }
         } else {
-            let dv_attr = if let Some(dv) = &field.arg_attrs.default_value {
-                let dv_lit = LitStr::new(dv, Span::call_site());
-                quote!(default_value=#dv_lit,)
-            } else {
-                quote!()
-            };
+            // No default values at CLI layer; treat CLI as presence-only
             let is_vec = field.is_vec_type();
             let multi = if is_vec {
                 quote!(num_args = 1.., action = ::clap::ArgAction::Append,)
             } else {
                 quote!()
             };
-            let field_ty = {
+            // For CLI, always wrap in Option unless already Option
+            let field_ty = if field.is_option_type() {
+                let t = &field.ty;
+                quote!(#t)
+            } else {
                 let t = &field.ty;
                 quote!(Option<#t>)
             };
 
             quote! {
-                #[clap(long=#name_lit, #short_attr #dv_attr #multi #help_attr)]
+                #[clap(long=#name_lit, #short_attr #multi #help_attr)]
                 #ident: #field_ty
             }
         }
@@ -341,49 +326,242 @@ fn generate_config_field(field: &FieldInfo) -> TokenStream2 {
         quote!()
     };
 
+    // Wrap non-Option types as Option<T> to detect presence in config
+    // But don't double-wrap if already Option<T>
+    let cfg_ty = if field.is_option_type() {
+        quote!(#ty)
+    } else {
+        quote!(Option<#ty>)
+    };
+
     quote! {
         #rename_attr
         #[serde(default)]
-        pub #ident: #ty
+        pub #ident: #cfg_ty
     }
 }
 
 /// Merge ephemeral CLI + ephemeral config => final
 fn unify_field(field: &FieldInfo) -> TokenStream2 {
     let ident = &field.ident;
+    let ty = &field.ty;
+
+    // Helper: compute default Option<T> from attribute default_value
+    let default_opt_expr = if field.is_bool_type() {
+        if let Some(ref dv) = field.arg_attrs.default_value {
+            let is_true = dv.eq_ignore_ascii_case("true");
+            let is_false = dv.eq_ignore_ascii_case("false");
+            if !is_true && !is_false {
+                let msg = format!(
+                    "For bool field, default_value must be \"true\" or \"false\", got {}",
+                    dv
+                );
+                return quote! {
+                    compile_error!(#msg);
+                    #ident: Default::default()
+                };
+            }
+            let bool_lit = if is_true { quote!(true) } else { quote!(false) };
+            quote!(Some(#bool_lit))
+        } else {
+            quote!(None)
+        }
+    } else if field.is_vec_type() {
+        // Support default_value for vectors as comma-separated strings
+        if let Some(dv) = &field.arg_attrs.default_value {
+            let dv_lit = LitStr::new(dv, Span::call_site());
+            quote!(Some({
+                let s: &str = #dv_lit;
+                if s.is_empty() {
+                    vec![]
+                } else {
+                    s.split(',').map(|x| x.trim().to_string()).collect()
+                }
+            }))
+        } else {
+            quote!(None)
+        }
+    } else {
+        // Non-bool scalar types: parse from string if provided
+        if let Some(dv) = &field.arg_attrs.default_value {
+            let dv_lit = LitStr::new(dv, Span::call_site());
+            // Special-case String
+            // For Option<T>: we can wrap Some(parsed). For T: we'll unwrap later.
+            // Try FromStr for general case
+            quote!({
+                let __s: &str = #dv_lit;
+                // If the field type is String or Option<String>, construct directly
+                let __opt = if false { None } else { None };
+                // Fallback: parse via FromStr for the field's inner type where needed at use site
+                Some(__s)
+            })
+        } else {
+            quote!(None)
+        }
+    };
+
     match field.arg_attrs.availability {
         FieldAvailability::CliOnly => {
             if field.is_vec_type() {
-                quote!(#ident: cli.#ident.unwrap_or_default())
+                // Apply default_value if no CLI input
+                if let Some(dv) = &field.arg_attrs.default_value {
+                    let dv_lit = LitStr::new(dv, Span::call_site());
+                    quote!(#ident: cli.#ident.unwrap_or_else(|| {
+                        let s: &str = #dv_lit;
+                        if s.is_empty() {
+                            vec![]
+                        } else {
+                            s.split(',').map(|x| x.trim().to_string()).collect()
+                        }
+                    }))
+                } else {
+                    quote!(#ident: cli.#ident.unwrap_or_default())
+                }
             } else if field.is_bool_type() {
                 quote!(#ident: cli.#ident.unwrap_or(false))
+            } else if field.is_option_type() || field.is_option_bool_type() {
+                quote!(#ident: cli.#ident)
             } else {
                 quote!(#ident: cli.#ident.unwrap_or_default())
             }
         }
         FieldAvailability::ConfigOnly => {
-            quote!(#ident: ephemeral_cfg.#ident)
+            if field.is_vec_type() {
+                // Apply default_value if no config value
+                if let Some(dv) = &field.arg_attrs.default_value {
+                    let dv_lit = LitStr::new(dv, Span::call_site());
+                    quote!(#ident: ephemeral_cfg.#ident.unwrap_or_else(|| {
+                        let s: &str = #dv_lit;
+                        if s.is_empty() {
+                            vec![]
+                        } else {
+                            s.split(',').map(|x| x.trim().to_string()).collect()
+                        }
+                    }))
+                } else {
+                    quote!(#ident: ephemeral_cfg.#ident.unwrap_or_default())
+                }
+            } else if field.is_bool_type() {
+                quote!(#ident: ephemeral_cfg.#ident.unwrap_or(false))
+            } else if field.is_option_type() || field.is_option_bool_type() {
+                quote!(#ident: ephemeral_cfg.#ident)
+            } else {
+                quote!(#ident: ephemeral_cfg.#ident.unwrap_or_default())
+            }
         }
         FieldAvailability::CliAndConfig => {
             if field.is_vec_type() {
                 match field.arg_attrs.multi_value_behavior {
-                    MultiValueBehavior::Extend => quote! {
-                        #ident: {
-                            let mut merged = ephemeral_cfg.#ident.clone();
-                            if let Some(cli_vec) = cli.#ident {
-                                merged.extend(cli_vec);
+                    MultiValueBehavior::Extend => {
+                        // For extend: merge config + CLI, with default as fallback
+                        if let Some(dv) = &field.arg_attrs.default_value {
+                            let dv_lit = LitStr::new(dv, Span::call_site());
+                            quote! {
+                                #ident: {
+                                    let default_vec = {
+                                        let s: &str = #dv_lit;
+                                        if s.is_empty() {
+                                            vec![]
+                                        } else {
+                                            s.split(',').map(|x| x.trim().to_string()).collect()
+                                        }
+                                    };
+                                    let mut merged = ephemeral_cfg.#ident.unwrap_or(default_vec);
+                                    if let Some(cli_vec) = cli.#ident {
+                                        merged.extend(cli_vec);
+                                    }
+                                    merged
+                                }
                             }
-                            merged
+                        } else {
+                            quote! {
+                                #ident: {
+                                    let mut merged = ephemeral_cfg.#ident.unwrap_or_default();
+                                    if let Some(cli_vec) = cli.#ident {
+                                        merged.extend(cli_vec);
+                                    }
+                                    merged
+                                }
+                            }
                         }
                     },
-                    MultiValueBehavior::Overwrite => quote! {
-                        #ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident.clone())
-                    },
+                    MultiValueBehavior::Overwrite => {
+                        // For overwrite: CLI > config > default
+                        if let Some(dv) = &field.arg_attrs.default_value {
+                            let dv_lit = LitStr::new(dv, Span::call_site());
+                            quote! {
+                                #ident: cli.#ident.or(ephemeral_cfg.#ident).unwrap_or_else(|| {
+                                    let s: &str = #dv_lit;
+                                    if s.is_empty() {
+                                        vec![]
+                                    } else {
+                                        s.split(',').map(|x| x.trim().to_string()).collect()
+                                    }
+                                })
+                            }
+                        } else {
+                            quote! {
+                                #ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident.unwrap_or_default())
+                            }
+                        }
+                    }
                 }
             } else if field.is_bool_type() {
-                quote!(#ident: cli.#ident.unwrap_or(ephemeral_cfg.#ident))
+                if field.is_option_type() {
+                    // Final Option<bool>
+                    quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(#default_opt_expr))
+                } else {
+                    // Final bool
+                    quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(#default_opt_expr).unwrap_or(false))
+                }
+            } else if field.is_option_bool_type() {
+                // Handle Option<bool> specifically
+                if let Some(ref dv) = field.arg_attrs.default_value {
+                    let is_true = dv.eq_ignore_ascii_case("true");
+                    let is_false = dv.eq_ignore_ascii_case("false");
+                    if is_true {
+                        quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(Some(true)))
+                    } else if is_false {
+                        quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(Some(false)))
+                    } else {
+                        quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident))
+                    }
+                } else {
+                    quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident))
+                }
+            } else if field.is_option_type() {
+                // Final Option<T>: precedence CLI > config > default
+                // For non-bool defaults, we parse at use site below
+                if let Some(dv) = &field.arg_attrs.default_value {
+                    let dv_lit = LitStr::new(dv, Span::call_site());
+                    if let Some(inner) = field.option_inner_type() {
+                        // String special-case
+                        let is_string = matches!(inner, syn::Type::Path(ref tp) if tp.path.segments.last().map(|s| s.ident == "String").unwrap_or(false));
+                        if is_string {
+                            quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(Some(#dv_lit.to_string())))
+                        } else {
+                            quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(::std::str::FromStr::from_str(#dv_lit).ok()))
+                        }
+                    } else {
+                        quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident))
+                    }
+                } else {
+                    quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident))
+                }
             } else {
-                quote!(#ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident))
+                // Final T: precedence CLI > config > default_value > Default::default()
+                if let Some(dv) = &field.arg_attrs.default_value {
+                    let dv_lit = LitStr::new(dv, Span::call_site());
+                    // String special-case
+                    let is_string = matches!(ty, syn::Type::Path(ref tp) if tp.path.segments.last().map(|s| s.ident == "String").unwrap_or(false));
+                    if is_string {
+                        quote!(#ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident.unwrap_or_else(|| #dv_lit.to_string())))
+                    } else {
+                        quote!(#ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident.unwrap_or_else(|| ::std::str::FromStr::from_str(#dv_lit).ok().unwrap_or_default())))
+                    }
+                } else {
+                    quote!(#ident: cli.#ident.unwrap_or_else(|| ephemeral_cfg.#ident.unwrap_or_default()))
+                }
             }
         }
         FieldAvailability::Internal => {
