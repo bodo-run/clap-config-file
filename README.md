@@ -126,4 +126,4 @@ By default, if you provide `"my-tool"` as the file name using `config_file_name`
 2. It checks if any of `my-tool.yaml`, `my-tool.toml`, or `my-tool.json` exist (or whatever formats you specified in `config_file_formats`).
 3. If not found, it walks up parent directories until it reaches the root.
 4. If a file is found, it's loaded.
-5. If multiple files
+5. If multiple files are found in the same directory, it's a fatal error.
