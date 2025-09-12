@@ -44,8 +44,12 @@ pub struct FieldInfo {
     pub arg_attrs: ArgAttributes,
 }
 impl FieldInfo {
-    // e.g. "bool" => is_bool_type
+    // e.g. "bool" => is_bool_type (but not Option<bool>)
     pub fn is_bool_type(&self) -> bool {
+        // First check it's not Option<bool>
+        if self.is_option_type() {
+            return false;
+        }
         if let syn::Type::Path(tp) = &self.ty {
             if let Some(seg) = tp.path.segments.last() {
                 return seg.ident == "bool";
@@ -58,6 +62,41 @@ impl FieldInfo {
         if let syn::Type::Path(tp) = &self.ty {
             if let Some(seg) = tp.path.segments.last() {
                 return seg.ident == "Vec";
+            }
+        }
+        false
+    }
+    /// Returns true if the field type is Option<..>
+    pub fn is_option_type(&self) -> bool {
+        if let syn::Type::Path(tp) = &self.ty {
+            if let Some(seg) = tp.path.segments.last() {
+                return seg.ident == "Option";
+            }
+        }
+        false
+    }
+    /// If the field type is Option<Inner>, returns Some(Inner).
+    pub fn option_inner_type(&self) -> Option<syn::Type> {
+        if let syn::Type::Path(tp) = &self.ty {
+            if let Some(seg) = tp.path.segments.last() {
+                if seg.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        for ga in &args.args {
+                            if let syn::GenericArgument::Type(t) = ga {
+                                return Some(t.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    /// Returns true if the field type is Option<bool>
+    pub fn is_option_bool_type(&self) -> bool {
+        if let Some(syn::Type::Path(tp)) = self.option_inner_type().as_ref() {
+            if let Some(seg) = tp.path.segments.last() {
+                return seg.ident == "bool";
             }
         }
         false
