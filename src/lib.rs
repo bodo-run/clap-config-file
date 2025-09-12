@@ -134,7 +134,14 @@ fn generate_parse_info_impl(
         }
 
         fn __inline_find_config(base_name: &str, fmts: &[&str]) -> Option<std::path::PathBuf> {
-            let mut dir = std::env::current_dir().ok()?;
+            let mut dir = match std::env::current_dir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    eprintln!("Warning: Failed to get current directory for config discovery: {}", e);
+                    eprintln!("Config file discovery will be skipped");
+                    return None;
+                }
+            };
             let mut found: Option<std::path::PathBuf> = None;
 
             loop {
@@ -209,15 +216,23 @@ fn generate_parse_info_impl(
             }
         }
 
-        let built = config_data.build().unwrap_or_else(|e| {
-            eprintln!("Failed to build config: {}", e);
-            ::config::Config::default()
-        });
-        let ephemeral_cfg: #cfg_ident = built.clone().try_deserialize().unwrap_or_else(|e| {
-            eprintln!("Failed to deserialize config into struct: {}", e);
-            eprintln!("Config data after build: {:#?}", built);
-            #cfg_ident::default()
-        });
+        let built = match config_data.build() {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("Warning: Failed to build config: {}", e);
+                eprintln!("Continuing with default configuration");
+                ::config::Config::default()
+            }
+        };
+        let ephemeral_cfg: #cfg_ident = match built.clone().try_deserialize() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("Warning: Failed to deserialize config into struct: {}", e);
+                eprintln!("Config data after build: {:#?}", built);
+                eprintln!("Continuing with default configuration");
+                #cfg_ident::default()
+            }
+        };
 
 
         let final_struct = #struct_ident {
