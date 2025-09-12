@@ -385,16 +385,8 @@ fn unify_field(field: &FieldInfo) -> TokenStream2 {
         // Non-bool scalar types: parse from string if provided
         if let Some(dv) = &field.arg_attrs.default_value {
             let dv_lit = LitStr::new(dv, Span::call_site());
-            // Special-case String
-            // For Option<T>: we can wrap Some(parsed). For T: we'll unwrap later.
-            // Try FromStr for general case
-            quote!({
-                let __s: &str = #dv_lit;
-                // If the field type is String or Option<String>, construct directly
-                let __opt = if false { None } else { None };
-                // Fallback: parse via FromStr for the field's inner type where needed at use site
-                Some(__s)
-            })
+            // We'll handle the parsing at the use site
+            quote!(Some(#dv_lit))
         } else {
             quote!(None)
         }
@@ -507,13 +499,8 @@ fn unify_field(field: &FieldInfo) -> TokenStream2 {
                     }
                 }
             } else if field.is_bool_type() {
-                if field.is_option_type() {
-                    // Final Option<bool>
-                    quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(#default_opt_expr))
-                } else {
-                    // Final bool
-                    quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(#default_opt_expr).unwrap_or(false))
-                }
+                // Final bool (is_bool_type() already excludes Option<bool>)
+                quote!(#ident: cli.#ident.or(ephemeral_cfg.#ident).or(#default_opt_expr).unwrap_or(false))
             } else if field.is_option_bool_type() {
                 // Handle Option<bool> specifically
                 if let Some(ref dv) = field.arg_attrs.default_value {

@@ -1,6 +1,6 @@
+#![allow(dead_code)]
+
 use clap_config_file::ClapConfigFile;
-use std::fs;
-use std::path::Path;
 use tempfile::TempDir;
 
 /// Test struct with various default value configurations
@@ -219,14 +219,17 @@ struct AvailabilityTestConfig {
 
 #[test]
 fn test_availability_modes() {
-    // Test that fields are properly categorized
-    // cli_only should ignore config values
-    // config_only should ignore CLI values
-    // both should accept from both sources
-    // internal should not be exposed to CLI or config
+    // This test verifies that the AvailabilityTestConfig struct compiles correctly
+    // with different accept_from modes. The actual behavior is tested in the
+    // integration tests (tests/advanced.rs) which test cli_only and config_only fields.
+    // Since availability modes are enforced at compile time through the macro,
+    // successful compilation is the validation.
     
-    // These are compile-time checks, so we just verify the logic
-    assert!(true, "Availability modes compile correctly");
+    // The struct definition above validates:
+    // - cli_only fields can have defaults
+    // - config_only fields can have defaults  
+    // - cli_and_config fields can have defaults
+    // - internal fields (no config_arg) are supported
 }
 
 /// Test empty and whitespace defaults
