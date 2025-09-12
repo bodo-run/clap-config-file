@@ -414,7 +414,19 @@ fn unify_field(field: &FieldInfo) -> TokenStream2 {
             } else if field.is_option_type() || field.is_option_bool_type() {
                 quote!(#ident: cli.#ident)
             } else {
-                quote!(#ident: cli.#ident.unwrap_or_default())
+                // Apply default_value for scalar types if no CLI input
+                if let Some(dv) = &field.arg_attrs.default_value {
+                    let dv_lit = LitStr::new(dv, Span::call_site());
+                    // String special-case
+                    let is_string = matches!(ty, syn::Type::Path(ref tp) if tp.path.segments.last().map(|s| s.ident == "String").unwrap_or(false));
+                    if is_string {
+                        quote!(#ident: cli.#ident.unwrap_or_else(|| #dv_lit.to_string()))
+                    } else {
+                        quote!(#ident: cli.#ident.unwrap_or_else(|| ::std::str::FromStr::from_str(#dv_lit).ok().unwrap_or_default()))
+                    }
+                } else {
+                    quote!(#ident: cli.#ident.unwrap_or_default())
+                }
             }
         }
         FieldAvailability::ConfigOnly => {

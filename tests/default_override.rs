@@ -29,15 +29,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-default-override"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // Test with config file
     fs::write(dir.path().join("test-config.yaml"), "my_string: config_value")?;
@@ -92,15 +96,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-bool-default"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // Config sets to false, should override default true
     fs::write(dir.path().join("test-config.yaml"), "enabled: false")?;
@@ -155,15 +163,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-vec-default"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // No config file, should use default
     Command::new("cargo")
@@ -201,15 +213,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-vec-override"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // Config overrides default
     fs::write(dir.path().join("test-config.yaml"), r#"
@@ -252,15 +268,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-vec-extend"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // Config adds to default (in extend mode)
     fs::write(dir.path().join("test-config.yaml"), r#"
@@ -302,15 +322,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-option-default"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // No config, should use default
     Command::new("cargo")
@@ -358,15 +382,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-empty-default"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // No config, should use empty default
     Command::new("cargo")
@@ -407,15 +435,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-numeric-default"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // No config, should use defaults
     Command::new("cargo")
@@ -475,15 +507,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-precedence"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // Config overrides field2 and field3
     fs::write(dir.path().join("test-config.yaml"), r#"
@@ -539,15 +575,19 @@ fn main() {
     
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
-    fs::write(dir.path().join("Cargo.toml"), r#"
+    let current_dir = std::env::current_dir()?;
+    fs::write(dir.path().join("Cargo.toml"), format!(r#"
 [package]
 name = "test-mixed-availability"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap_config_file = { path = "../.." }
-"#)?;
+clap-config-file = {{ path = "{}" }}
+clap = {{ version = "4.2", features = ["derive"] }}
+config = "0.13"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#, current_dir.display()))?;
     
     // Config tries to set all fields (but cli_field should ignore it)
     fs::write(dir.path().join("test-config.yaml"), r#"
