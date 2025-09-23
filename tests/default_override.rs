@@ -9,7 +9,7 @@ use tempfile::TempDir;
 #[test]
 fn config_overrides_string_default() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     // Create a test binary with String field having default
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
@@ -26,11 +26,14 @@ fn main() {
     println!("my_string: {}", cfg.my_string);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-default-override"
 version = "0.1.0"
@@ -41,18 +44,24 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // Test with config file
-    fs::write(dir.path().join("test-config.yaml"), "my-string: config_value")?;
-    
+    fs::write(
+        dir.path().join("test-config.yaml"),
+        "my-string: config_value",
+    )?;
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("my_string: config_value"));
-    
+
     Ok(())
 }
 
@@ -60,7 +69,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 #[test]
 fn cli_overrides_config_and_default_u16() -> Result<(), Box<dyn std::error::Error>> {
     let dir = Path::new("examples/basic");
-    
+
     // Ensure config has port 9090 and default is 8080
     Command::cargo_bin("basic")?
         .current_dir(dir)
@@ -69,7 +78,7 @@ fn cli_overrides_config_and_default_u16() -> Result<(), Box<dyn std::error::Erro
         .assert()
         .success()
         .stdout(predicate::str::contains("port: 3000"));
-    
+
     Ok(())
 }
 
@@ -77,7 +86,7 @@ fn cli_overrides_config_and_default_u16() -> Result<(), Box<dyn std::error::Erro
 #[test]
 fn bool_default_true_overridden_by_config() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -93,11 +102,14 @@ fn main() {
     println!("enabled: {}", cfg.enabled);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-bool-default"
 version = "0.1.0"
@@ -108,18 +120,21 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // Config sets to false, should override default true
     fs::write(dir.path().join("test-config.yaml"), "enabled: false")?;
-    
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("enabled: false"));
-    
+
     Ok(())
 }
 
@@ -127,7 +142,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 #[test]
 fn option_bool_with_default() -> Result<(), Box<dyn std::error::Error>> {
     let dir = Path::new("examples/basic");
-    
+
     // The debug field is Option<bool> with default_value = "false"
     // Config doesn't set it, so should use default
     Command::cargo_bin("basic")?
@@ -135,8 +150,11 @@ fn option_bool_with_default() -> Result<(), Box<dyn std::error::Error>> {
         .arg("--no-config")
         .assert()
         .success()
-        .stdout(predicate::str::contains("debug: Some(\n        false,\n    )").or(predicate::str::contains("debug: Some(false)")));
-    
+        .stdout(
+            predicate::str::contains("debug: Some(\n        false,\n    )")
+                .or(predicate::str::contains("debug: Some(false)")),
+        );
+
     Ok(())
 }
 
@@ -144,7 +162,7 @@ fn option_bool_with_default() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn vector_field_with_default_values() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -160,11 +178,14 @@ fn main() {
     println!("items: {:?}", cfg.items);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-vec-default"
 version = "0.1.0"
@@ -175,8 +196,11 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // No config file, should use default
     Command::new("cargo")
         .arg("run")
@@ -186,7 +210,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
         .assert()
         .success()
         .stdout(predicate::str::contains(r#"["item1", "item2", "item3"]"#));
-    
+
     Ok(())
 }
 
@@ -194,7 +218,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 #[test]
 fn vector_config_overrides_default() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -210,11 +234,14 @@ fn main() {
     println!("items: {:?}", cfg.items);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-vec-override"
 version = "0.1.0"
@@ -225,23 +252,31 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // Config overrides default
-    fs::write(dir.path().join("test-config.yaml"), r#"
+    fs::write(
+        dir.path().join("test-config.yaml"),
+        r#"
 items:
   - config1
   - config2
   - config3
-"#)?;
-    
+"#,
+    )?;
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#"["config1", "config2", "config3"]"#));
-    
+        .stdout(predicate::str::contains(
+            r#"["config1", "config2", "config3"]"#,
+        ));
+
     Ok(())
 }
 
@@ -249,7 +284,7 @@ items:
 #[test]
 fn vector_extend_with_defaults() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -265,11 +300,14 @@ fn main() {
     println!("items: {:?}", cfg.items);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-vec-extend"
 version = "0.1.0"
@@ -280,22 +318,28 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // Config adds to default (in extend mode)
-    fs::write(dir.path().join("test-config.yaml"), r#"
+    fs::write(
+        dir.path().join("test-config.yaml"),
+        r#"
 items:
   - added1
   - added2
-"#)?;
-    
+"#,
+    )?;
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains(r#"["added1", "added2"]"#));
-    
+
     Ok(())
 }
 
@@ -303,7 +347,7 @@ items:
 #[test]
 fn option_string_with_default() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -319,11 +363,14 @@ fn main() {
     println!("optional: {:?}", cfg.optional);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-option-default"
 version = "0.1.0"
@@ -334,8 +381,11 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // No config, should use default
     Command::new("cargo")
         .arg("run")
@@ -345,17 +395,20 @@ serde = {{ version = "1.0", features = ["derive"] }}
         .assert()
         .success()
         .stdout(predicate::str::contains(r#"Some("default_value")"#));
-    
+
     // Config overrides default
-    fs::write(dir.path().join("test-config.yaml"), "optional: config_value")?;
-    
+    fs::write(
+        dir.path().join("test-config.yaml"),
+        "optional: config_value",
+    )?;
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains(r#"Some("config_value")"#));
-    
+
     Ok(())
 }
 
@@ -363,7 +416,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 #[test]
 fn empty_string_default() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -379,11 +432,14 @@ fn main() {
     println!("empty: '{}'", cfg.empty);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-empty-default"
 version = "0.1.0"
@@ -394,8 +450,11 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // No config, should use empty default
     Command::new("cargo")
         .arg("run")
@@ -405,7 +464,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
         .assert()
         .success()
         .stdout(predicate::str::contains("empty: ''"));
-    
+
     Ok(())
 }
 
@@ -413,7 +472,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 #[test]
 fn numeric_default_parsing() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -432,11 +491,14 @@ fn main() {
     println!("number: {}, float: {}", cfg.number, cfg.float);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-numeric-default"
 version = "0.1.0"
@@ -447,8 +509,11 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // No config, should use defaults
     Command::new("cargo")
         .arg("run")
@@ -458,17 +523,17 @@ serde = {{ version = "1.0", features = ["derive"] }}
         .assert()
         .success()
         .stdout(predicate::str::contains("number: 42, float: 3.14"));
-    
+
     // Config overrides one field
     fs::write(dir.path().join("test-config.yaml"), "number: 100")?;
-    
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("number: 100, float: 3.14"));
-    
+
     Ok(())
 }
 
@@ -476,7 +541,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 #[test]
 fn complete_precedence_chain() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -504,11 +569,14 @@ fn main() {
     println!("field4: '{}'", cfg.field4);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-precedence"
 version = "0.1.0"
@@ -519,14 +587,20 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // Config overrides field2 and field3
-    fs::write(dir.path().join("test-config.yaml"), r#"
+    fs::write(
+        dir.path().join("test-config.yaml"),
+        r#"
 field2: config2
 field3: config3
-"#)?;
-    
+"#,
+    )?;
+
     // CLI overrides field3
     Command::new("cargo")
         .arg("run")
@@ -536,11 +610,11 @@ field3: config3
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("field1: default1"))  // Uses default
-        .stdout(predicate::str::contains("field2: config2"))   // Uses config
-        .stdout(predicate::str::contains("field3: cli3"))      // Uses CLI
-        .stdout(predicate::str::contains("field4: ''"));       // Uses type default
-    
+        .stdout(predicate::str::contains("field1: default1")) // Uses default
+        .stdout(predicate::str::contains("field2: config2")) // Uses config
+        .stdout(predicate::str::contains("field3: cli3")) // Uses CLI
+        .stdout(predicate::str::contains("field4: ''")); // Uses type default
+
     Ok(())
 }
 
@@ -548,7 +622,7 @@ field3: config3
 #[test]
 fn mixed_availability_with_defaults() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    
+
     let test_code = r#"
 use clap_config_file::ClapConfigFile;
 
@@ -572,11 +646,14 @@ fn main() {
     println!("both_field: {}", cfg.both_field);
 }
 "#;
-    
+
     fs::create_dir(dir.path().join("src"))?;
     fs::write(dir.path().join("src/main.rs"), test_code)?;
     let current_dir = std::env::current_dir()?;
-    fs::write(dir.path().join("Cargo.toml"), format!(r#"
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        format!(
+            r#"
 [package]
 name = "test-mixed-availability"
 version = "0.1.0"
@@ -587,24 +664,30 @@ clap-config-file = {{ path = "{}" }}
 clap = {{ version = "4.2", features = ["derive"] }}
 config = "0.13"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#, current_dir.display()))?;
-    
+"#,
+            current_dir.display()
+        ),
+    )?;
+
     // Config tries to set all fields (but cli_field should ignore it)
-    fs::write(dir.path().join("test-config.yaml"), r#"
+    fs::write(
+        dir.path().join("test-config.yaml"),
+        r#"
 cli-field: ignored_config
 config-field: from_config
 both-field: from_config
-"#)?;
-    
+"#,
+    )?;
+
     Command::new("cargo")
         .arg("run")
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("cli_field: cli_default"))     // Ignores config, uses default
-        .stdout(predicate::str::contains("config_field: from_config"))  // Uses config
-        .stdout(predicate::str::contains("both_field: from_config"));   // Uses config
-    
+        .stdout(predicate::str::contains("cli_field: cli_default")) // Ignores config, uses default
+        .stdout(predicate::str::contains("config_field: from_config")) // Uses config
+        .stdout(predicate::str::contains("both_field: from_config")); // Uses config
+
     // CLI overrides cli_field and both_field
     Command::new("cargo")
         .arg("run")
@@ -616,9 +699,9 @@ both-field: from_config
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("cli_field: from_cli"))        // Uses CLI
-        .stdout(predicate::str::contains("config_field: from_config"))  // Still uses config
-        .stdout(predicate::str::contains("both_field: from_cli"));      // CLI overrides config
-    
+        .stdout(predicate::str::contains("cli_field: from_cli")) // Uses CLI
+        .stdout(predicate::str::contains("config_field: from_config")) // Still uses config
+        .stdout(predicate::str::contains("both_field: from_cli")); // CLI overrides config
+
     Ok(())
-} 
+}

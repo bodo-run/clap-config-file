@@ -6,8 +6,8 @@ use tempfile::TempDir;
 #[test]
 fn extend_list_merging() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    std::fs::write(dir.path().join("advanced-config.yaml"), 
-        "extend_list: [\"config_item\"]\noverwrite_list: [\"config_item\"]\nspecial_secret: \"secret\"\nextra_settings: { nesting_level: 3, allow_guest: false }")?;
+    std::fs::write(dir.path().join("advanced-config.yaml"),
+        "extend-list: [\"config_item\"]\noverwrite-list: [\"config_item\"]\nspecial-secret: \"secret\"\nextra-settings:\n  nesting-level: 3\n  allow-guest: false")?;
 
     Command::cargo_bin("advanced")?
         .current_dir(dir.path())
@@ -27,8 +27,8 @@ fn extend_list_merging() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn overwrite_list_cli() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
-    std::fs::write(dir.path().join("advanced-config.yaml"), 
-        "overwrite_list: [\"config_item\"]\nspecial_secret: \"secret\"\nextra_settings: { nesting_level: 3, allow_guest: false }")?;
+    std::fs::write(dir.path().join("advanced-config.yaml"),
+        "overwrite-list: [\"config_item\"]\nspecial-secret: \"secret\"\nextra-settings:\n  nesting-level: 3\n  allow-guest: false")?;
 
     Command::cargo_bin("advanced")?
         .current_dir(dir.path())
@@ -49,7 +49,7 @@ fn config_only_field_from_file() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
     std::fs::write(
         dir.path().join("advanced-config.yaml"),
-        "special_secret: \"from_config\"\nextra_settings: { nesting_level: 3, allow_guest: false }",
+        "special-secret: \"from_config\"",
     )?;
 
     Command::cargo_bin("advanced")?
@@ -80,7 +80,7 @@ fn test_positional_args() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new()?;
     std::fs::write(
         dir.path().join("advanced-config.yaml"),
-        "database_url: \"sqlite://test.db\"\n",
+        "database-url: \"sqlite://test.db\"\n",
     )?;
 
     Command::cargo_bin("advanced")?

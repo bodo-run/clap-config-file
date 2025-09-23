@@ -491,7 +491,7 @@ fn unify_field(field: &FieldInfo) -> TokenStream2 {
                                 }
                             }
                         }
-                    },
+                    }
                     MultiValueBehavior::Overwrite => {
                         // For overwrite: CLI > config > default
                         if let Some(dv) = &field.arg_attrs.default_value {
