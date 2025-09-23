@@ -318,12 +318,15 @@ fn generate_config_field(field: &FieldInfo) -> TokenStream2 {
     let ident = &field.ident;
     let ty = &field.ty;
 
-    // Only use rename if explicitly specified
+    // Use kebab-case naming for config fields to match CLI conventions
     let rename_attr = if let Some(name) = &field.arg_attrs.name {
         let name_lit = LitStr::new(name, Span::call_site());
         quote!(#[serde(rename = #name_lit)])
     } else {
-        quote!()
+        // Convert to kebab-case to match CLI field naming
+        let kebab_name = ident.to_string().to_kebab_case();
+        let name_lit = LitStr::new(&kebab_name, Span::call_site());
+        quote!(#[serde(rename = #name_lit)])
     };
 
     // Wrap non-Option types as Option<T> to detect presence in config
