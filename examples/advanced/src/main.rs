@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct ExtraSettings {
+    #[serde(rename = "nesting-level")]
     pub nesting_level: i64,
+    #[serde(rename = "allow-guest")]
     pub allow_guest: Option<bool>,
 }
 
@@ -32,7 +34,7 @@ struct AdvancedConfig {
     pub server_port: u16,
 
     // just specifying --debug will set it to true
-    #[config_arg()]
+    #[config_arg(default_value = "false")]
     pub debug: bool,
 
     // some config files expand environment variables

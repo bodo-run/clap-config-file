@@ -57,13 +57,13 @@ fn no_config_uses_defaults() -> Result<(), Box<dyn std::error::Error>> {
 fn config_overrides_default_github_issue_8() -> Result<(), Box<dyn std::error::Error>> {
     // This test specifically validates the fix for GitHub issue #8
     // Config file values should override default_value attributes
-    
+
     let dir = Path::new("examples/basic");
-    
+
     // The config file has port: 9090
     // The struct has #[config_arg(default_value = "8080")]
     // Expected: config value (9090) should override default (8080)
-    
+
     Command::cargo_bin("basic")?
         .current_dir(dir)
         .arg("--config-file")

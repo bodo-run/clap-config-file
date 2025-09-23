@@ -1,0 +1,1 @@
+database-url: "postgres://localhost:5432/mydb"
