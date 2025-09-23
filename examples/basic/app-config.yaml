@@ -1,7 +1,3 @@
 # Sample configuration file for the "basic" example.
 port: 9090
-database_url: "postgres://localhost:5432/mydb"
-ignored_files:
-  - "*.log"
-  - "target/"
-  - "node_modules/"
+database-url: "postgres://localhost:5432/mydb"
