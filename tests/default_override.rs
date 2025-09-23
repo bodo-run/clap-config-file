@@ -44,7 +44,7 @@ serde = {{ version = "1.0", features = ["derive"] }}
 "#, current_dir.display()))?;
     
     // Test with config file
-    fs::write(dir.path().join("test-config.yaml"), "my_string: config_value")?;
+    fs::write(dir.path().join("test-config.yaml"), "my-string: config_value")?;
     
     Command::new("cargo")
         .arg("run")
@@ -591,9 +591,9 @@ serde = {{ version = "1.0", features = ["derive"] }}
     
     // Config tries to set all fields (but cli_field should ignore it)
     fs::write(dir.path().join("test-config.yaml"), r#"
-cli_field: ignored_config
-config_field: from_config
-both_field: from_config
+cli-field: ignored_config
+config-field: from_config
+both-field: from_config
 "#)?;
     
     Command::new("cargo")
